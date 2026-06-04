@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Micro-ondes · Convertisseur</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --cream: #f5f0e8;
+    --warm-white: #faf7f2;
+    --charcoal: #2c2825;
+    --ember: #c94f1e;
+    --amber: #e8903a;
+    --sand: #d4c4a8;
+    --muted: #8c7f72;
+    --panel: #ece6db;
+  }
+
+  body {
+    background: var(--cream);
+    color: var(--charcoal);
+    font-family: 'DM Sans', sans-serif;
+    min-height: 100svh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0;
+    overflow-x: hidden;
+  }
+
+  /* Grain overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 100;
+    opacity: 0.6;
+  }
+
+  .app {
+    width: 100%;
+    max-width: 420px;
+    min-height: 100svh;
+    display: flex;
+    flex-direction: column;
+    padding: 0 0 40px;
+  }
+
+  /* Header */
+  header {
+    padding: 48px 28px 24px;
+    position: relative;
+  }
+
+  .header-icon {
+    width: 44px;
+    height: 44px;
+    background: var(--charcoal);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 20px;
+  }
+
+  .header-icon svg {
+    width: 24px;
+    height: 24px;
+    fill: none;
+    stroke: var(--amber);
+    stroke-width: 1.8;
+    stroke-linecap: round;
+  }
+
+  h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 2rem;
+    line-height: 1.1;
+    color: var(--charcoal);
+    letter-spacing: -0.02em;
+  }
+
+  h1 span {
+    color: var(--ember);
+  }
+
+  .subtitle {
+    margin-top: 8px;
+    font-size: 0.875rem;
+    color: var(--muted);
+    font-weight: 300;
+    line-height: 1.5;
+  }
+
+  /* Cards */
+  .card {
+    margin: 0 16px 16px;
+    background: var(--warm-white);
+    border-radius: 20px;
+    padding: 24px;
+    border: 1px solid rgba(0,0,0,0.06);
+    box-shadow: 0 2px 12px rgba(44,40,37,0.06);
+  }
+
+  .card-label {
+    font-size: 0.7rem;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 16px;
+  }
+
+  /* Time Input */
+  .time-input-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .time-block {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .time-block label {
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .time-block input {
+    width: 100%;
+    background: var(--panel);
+    border: 2px solid transparent;
+    border-radius: 12px;
+    font-family: 'DM Mono', monospace;
+    font-size: 2.2rem;
+    font-weight: 500;
+    color: var(--charcoal);
+    text-align: center;
+    padding: 10px 4px;
+    outline: none;
+    transition: border-color 0.2s, background 0.2s;
+    -moz-appearance: textfield;
+  }
+
+  .time-block input::-webkit-outer-spin-button,
+  .time-block input::-webkit-inner-spin-button { -webkit-appearance: none; }
+
+  .time-block input:focus {
+    border-color: var(--amber);
+    background: var(--warm-white);
+  }
+
+  .time-sep {
+    font-family: 'DM Mono', monospace;
+    font-size: 2rem;
+    font-weight: 500;
+    color: var(--sand);
+    margin-top: 4px;
+    padding-bottom: 2px;
+  }
+
+  /* Watt selector */
+  .watt-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+
+  .watt-btn {
+    background: var(--panel);
+    border: 2px solid transparent;
+    border-radius: 12px;
+    padding: 10px 4px;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: center;
+  }
+
+  .watt-btn .w-val {
+    display: block;
+    font-size: 1.05rem;
+    color: var(--charcoal);
+    margin-bottom: 1px;
+  }
+
+  .watt-btn:hover {
+    border-color: var(--sand);
+    background: var(--cream);
+  }
+
+  .watt-btn.active {
+    background: var(--charcoal);
+    border-color: var(--charcoal);
+    color: var(--sand);
+    box-shadow: 0 3px 12px rgba(44,40,37,0.2);
+  }
+
+  .watt-btn.active .w-val {
+    color: var(--amber);
+  }
+
+  .watt-custom-row {
+    margin-top: 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .watt-custom-row label {
+    font-size: 0.75rem;
+    color: var(--muted);
+    white-space: nowrap;
+    font-weight: 400;
+  }
+
+  .watt-custom-row input {
+    flex: 1;
+    background: var(--panel);
+    border: 2px solid transparent;
+    border-radius: 10px;
+    font-family: 'DM Mono', monospace;
+    font-size: 1rem;
+    color: var(--charcoal);
+    text-align: center;
+    padding: 8px;
+    outline: none;
+    transition: border-color 0.2s;
+    -moz-appearance: textfield;
+  }
+
+  .watt-custom-row input::-webkit-outer-spin-button,
+  .watt-custom-row input::-webkit-inner-spin-button { -webkit-appearance: none; }
+
+  .watt-custom-row input:focus {
+    border-color: var(--amber);
+  }
+
+  /* Arrow / divider */
+  .convert-arrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 0 0;
+  }
+
+  .convert-arrow svg {
+    width: 28px;
+    height: 28px;
+    stroke: var(--sand);
+    stroke-width: 2;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  /* Result */
+  .result-card {
+    margin: 0 16px 16px;
+    background: var(--charcoal);
+    border-radius: 20px;
+    padding: 28px 24px;
+    border: 1px solid rgba(255,255,255,0.04);
+    box-shadow: 0 4px 24px rgba(44,40,37,0.18);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    transition: opacity 0.3s;
+    min-height: 120px;
+    justify-content: center;
+  }
+
+  .result-label {
+    font-size: 0.7rem;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .result-time {
+    font-family: 'DM Serif Display', serif;
+    font-size: 3.6rem;
+    color: var(--warm-white);
+    line-height: 1;
+    letter-spacing: -0.02em;
+  }
+
+  .result-time .unit {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 1.1rem;
+    font-weight: 300;
+    color: var(--sand);
+    margin-left: 4px;
+    letter-spacing: 0;
+  }
+
+  .result-hint {
+    font-size: 0.8rem;
+    color: var(--muted);
+    font-weight: 300;
+    margin-top: 4px;
+  }
+
+  .result-hint strong {
+    color: var(--amber);
+    font-weight: 500;
+  }
+
+  .result-empty {
+    font-size: 0.95rem;
+    color: var(--muted);
+    font-weight: 300;
+    font-style: italic;
+  }
+
+  /* Explanation pill */
+  .info-pill {
+    margin: 0 16px;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    background: rgba(232,144,58,0.08);
+    border: 1px solid rgba(232,144,58,0.2);
+    border-radius: 14px;
+    padding: 14px 16px;
+  }
+
+  .info-pill svg {
+    flex-shrink: 0;
+    margin-top: 1px;
+    width: 16px;
+    height: 16px;
+    stroke: var(--amber);
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
+  }
+
+  .info-pill p {
+    font-size: 0.78rem;
+    color: var(--muted);
+    line-height: 1.55;
+  }
+
+  /* Animations */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .result-time { animation: fadeUp 0.25s ease; }
+
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <div class="header-icon">
+      <svg viewBox="0 0 24 24">
+        <rect x="2" y="5" width="20" height="14" rx="2"/>
+        <path d="M18 9v6M15 9l1.5 3L18 9"/>
+        <circle cx="7" cy="12" r="2.5"/>
+        <path d="M2 9h20"/>
+      </svg>
+    </div>
+    <h1>Micro<span>·</span>ondes<br>Convertisseur</h1>
+    <p class="subtitle">Adapte ton temps de cuisson<br>à la puissance de ton four.</p>
+  </header>
+
+  <!-- Temps de référence -->
+  <div class="card">
+    <div class="card-label">Temps indiqué sur l'emballage</div>
+    <div class="time-input-row">
+      <div class="time-block">
+        <input type="number" id="refMin" min="0" max="99" value="2" placeholder="00">
+        <label>min</label>
+      </div>
+      <div class="time-sep">:</div>
+      <div class="time-block">
+        <input type="number" id="refSec" min="0" max="59" value="0" placeholder="00">
+        <label>sec</label>
+      </div>
+    </div>
+  </div>
+
+  <!-- Puissance de référence -->
+  <div class="card">
+    <div class="card-label">Puissance de référence (W)</div>
+    <div class="watt-grid" id="refGrid"></div>
+    <div class="watt-custom-row">
+      <label>Autre&nbsp;:</label>
+      <input type="number" id="refCustom" min="100" max="3000" placeholder="ex. 850">
+    </div>
+  </div>
+
+  <div class="convert-arrow">
+    <svg viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></svg>
+  </div>
+
+  <!-- Puissance souhaitée -->
+  <div class="card">
+    <div class="card-label">Puissance de ton four (W)</div>
+    <div class="watt-grid" id="myGrid"></div>
+    <div class="watt-custom-row">
+      <label>Autre&nbsp;:</label>
+      <input type="number" id="myCustom" min="100" max="3000" placeholder="ex. 750">
+    </div>
+  </div>
+
+  <!-- Résultat -->
+  <div class="result-card" id="resultCard">
+    <div class="result-label">Temps converti</div>
+    <div id="resultContent" class="result-empty">Remplis les champs ci-dessus</div>
+  </div>
+
+  <!-- Info formule -->
+  <div class="info-pill">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+    <p>Formule&nbsp;: <strong>t₂ = t₁ × P₁ ÷ P₂</strong><br>
+    L'énergie déposée dans les aliments reste la même — on ajuste la durée proportionnellement à la puissance.</p>
+  </div>
+
+</div>
+
+<script>
+const WATTS = [600, 700, 750, 800, 850, 900, 1000, 1200];
+
+let refWatt = 800;
+let myWatt  = 700;
+
+function makeGrid(containerId, current, onSelect) {
+  const grid = document.getElementById(containerId);
+  grid.innerHTML = '';
+  WATTS.forEach(w => {
+    const btn = document.createElement('button');
+    btn.className = 'watt-btn' + (w === current ? ' active' : '');
+    btn.innerHTML = `<span class="w-val">${w}</span>W`;
+    btn.addEventListener('click', () => {
+      onSelect(w);
+      // clear custom
+      const customId = containerId === 'refGrid' ? 'refCustom' : 'myCustom';
+      document.getElementById(customId).value = '';
+    });
+    grid.appendChild(btn);
+  });
+}
+
+function updateRefGrid() {
+  makeGrid('refGrid', refWatt, (w) => { refWatt = w; updateRefGrid(); compute(); });
+}
+
+function updateMyGrid() {
+  makeGrid('myGrid', myWatt, (w) => { myWatt = w; updateMyGrid(); compute(); });
+}
+
+function totalSeconds() {
+  const m = parseInt(document.getElementById('refMin').value) || 0;
+  const s = parseInt(document.getElementById('refSec').value) || 0;
+  return m * 60 + s;
+}
+
+function formatTime(totalSec) {
+  const m = Math.floor(totalSec / 60);
+  const s = Math.round(totalSec % 60);
+  if (m === 0) return { display: `${s}`, unit: 'sec' };
+  if (s === 0) return { display: `${m}`, unit: m > 1 ? 'min' : 'min' };
+  return { display: `${m}<span class="unit">min</span> ${s.toString().padStart(2,'0')}`, unit: 'sec' };
+}
+
+function compute() {
+  const tRef = totalSeconds();
+  const content = document.getElementById('resultContent');
+
+  if (tRef <= 0 || refWatt <= 0 || myWatt <= 0) {
+    content.className = 'result-empty';
+    content.innerHTML = 'Remplis les champs ci-dessus';
+    return;
+  }
+
+  const tNew = tRef * refWatt / myWatt;
+  const m = Math.floor(tNew / 60);
+  const s = Math.round(tNew % 60);
+
+  let timeStr;
+  if (m === 0) {
+    timeStr = `${s}<span class="unit">sec</span>`;
+  } else if (s === 0) {
+    timeStr = `${m}<span class="unit">min</span>`;
+  } else {
+    timeStr = `${m}<span class="unit">min</span>&nbsp;${s.toString().padStart(2,'0')}<span class="unit">sec</span>`;
+  }
+
+  const diff = Math.round(tNew - tRef);
+  const diffStr = diff > 0
+    ? `+${diff} sec de plus qu'indiqué`
+    : diff < 0
+    ? `${Math.abs(diff)} sec de moins qu'indiqué`
+    : `Même durée qu'indiqué`;
+
+  content.className = 'result-time';
+  content.innerHTML = `${timeStr}<br><span class="result-hint" style="font-family:'DM Sans';font-size:.8rem;color:var(--muted);font-weight:300"><strong>${myWatt}W</strong> · ${diffStr}</span>`;
+}
+
+// Custom watt inputs
+document.getElementById('refCustom').addEventListener('input', e => {
+  const v = parseInt(e.target.value);
+  if (v >= 100 && v <= 3000) {
+    refWatt = v;
+    // deselect grid
+    document.querySelectorAll('#refGrid .watt-btn').forEach(b => b.classList.remove('active'));
+    compute();
+  }
+});
+
+document.getElementById('myCustom').addEventListener('input', e => {
+  const v = parseInt(e.target.value);
+  if (v >= 100 && v <= 3000) {
+    myWatt = v;
+    document.querySelectorAll('#myGrid .watt-btn').forEach(b => b.classList.remove('active'));
+    compute();
+  }
+});
+
+// Time inputs
+document.getElementById('refMin').addEventListener('input', () => {
+  let v = parseInt(document.getElementById('refMin').value);
+  if (isNaN(v) || v < 0) v = 0;
+  if (v > 99) v = 99;
+  document.getElementById('refMin').value = v;
+  compute();
+});
+
+document.getElementById('refSec').addEventListener('input', () => {
+  let v = parseInt(document.getElementById('refSec').value);
+  if (isNaN(v) || v < 0) v = 0;
+  if (v > 59) { v = 59; }
+  document.getElementById('refSec').value = v;
+  compute();
+});
+
+// Init
+updateRefGrid();
+updateMyGrid();
+compute();
+</script>
+</body>
+</html>
