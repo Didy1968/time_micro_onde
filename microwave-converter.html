@@ -29,12 +29,12 @@
     background: var(--cream);
     color: var(--charcoal);
     font-family: 'DM Sans', sans-serif;
-    min-height: 100svh;
+    height: 100svh;
     display: flex;
     flex-direction: column;
     align-items: center;
     padding: 0;
-    overflow-x: hidden;
+    overflow: hidden;
   }
 
   /* Grain overlay */
@@ -51,75 +51,77 @@
   .app {
     width: 100%;
     max-width: 420px;
-    min-height: 100svh;
+    height: 100svh;
     display: flex;
     flex-direction: column;
-    padding: 0 0 40px;
+    padding: 0 0 env(safe-area-inset-bottom, 0px);
   }
 
   /* Header */
   header {
-    padding: 48px 28px 24px;
-    position: relative;
+    padding: max(10px, env(safe-area-inset-top)) 20px 6px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
   }
 
   .header-icon {
-    width: 44px;
-    height: 44px;
+    width: 30px;
+    height: 30px;
+    flex-shrink: 0;
     background: var(--charcoal);
-    border-radius: 12px;
+    border-radius: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-bottom: 20px;
   }
 
   .header-icon svg {
-    width: 24px;
-    height: 24px;
+    width: 17px;
+    height: 17px;
     fill: none;
     stroke: var(--amber);
     stroke-width: 1.8;
     stroke-linecap: round;
   }
 
-  h1 {
+  .header-text h1 {
     font-family: 'DM Serif Display', serif;
-    font-size: 2rem;
+    font-size: 1.25rem;
     line-height: 1.1;
     color: var(--charcoal);
     letter-spacing: -0.02em;
   }
 
-  h1 span {
+  .header-text h1 span {
     color: var(--ember);
   }
 
   .subtitle {
-    margin-top: 8px;
-    font-size: 0.875rem;
+    font-size: 0.7rem;
     color: var(--muted);
     font-weight: 300;
-    line-height: 1.5;
+    line-height: 1.3;
+    margin-top: 1px;
   }
 
   /* Cards */
   .card {
-    margin: 0 16px 16px;
+    margin: 0 12px 6px;
     background: var(--warm-white);
-    border-radius: 20px;
-    padding: 24px;
+    border-radius: 16px;
+    padding: 10px 14px;
     border: 1px solid rgba(0,0,0,0.06);
-    box-shadow: 0 2px 12px rgba(44,40,37,0.06);
+    box-shadow: 0 2px 8px rgba(44,40,37,0.06);
   }
 
   .card-label {
-    font-size: 0.7rem;
+    font-size: 0.65rem;
     font-weight: 500;
     letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--muted);
-    margin-bottom: 16px;
+    margin-bottom: 6px;
   }
 
   /* Time Input */
@@ -134,11 +136,11 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
   }
 
   .time-block label {
-    font-size: 0.7rem;
+    font-size: 0.65rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--muted);
@@ -148,13 +150,13 @@
     width: 100%;
     background: var(--panel);
     border: 2px solid transparent;
-    border-radius: 12px;
+    border-radius: 10px;
     font-family: 'DM Mono', monospace;
-    font-size: 2.2rem;
+    font-size: 1.9rem;
     font-weight: 500;
     color: var(--charcoal);
     text-align: center;
-    padding: 10px 4px;
+    padding: 5px 4px;
     outline: none;
     transition: border-color 0.2s, background 0.2s;
     -moz-appearance: textfield;
@@ -170,27 +172,26 @@
 
   .time-sep {
     font-family: 'DM Mono', monospace;
-    font-size: 2rem;
+    font-size: 1.7rem;
     font-weight: 500;
     color: var(--sand);
-    margin-top: 4px;
-    padding-bottom: 2px;
+    padding-bottom: 14px;
   }
 
   /* Watt selector */
   .watt-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
   }
 
   .watt-btn {
     background: var(--panel);
     border: 2px solid transparent;
-    border-radius: 12px;
-    padding: 10px 4px;
+    border-radius: 10px;
+    padding: 5px 2px;
     font-family: 'DM Mono', monospace;
-    font-size: 0.9rem;
+    font-size: 0.75rem;
     font-weight: 500;
     color: var(--muted);
     cursor: pointer;
@@ -200,9 +201,9 @@
 
   .watt-btn .w-val {
     display: block;
-    font-size: 1.05rem;
+    font-size: 0.9rem;
     color: var(--charcoal);
-    margin-bottom: 1px;
+    margin-bottom: 0;
   }
 
   .watt-btn:hover {
@@ -214,7 +215,7 @@
     background: var(--charcoal);
     border-color: var(--charcoal);
     color: var(--sand);
-    box-shadow: 0 3px 12px rgba(44,40,37,0.2);
+    box-shadow: 0 2px 8px rgba(44,40,37,0.2);
   }
 
   .watt-btn.active .w-val {
@@ -222,14 +223,14 @@
   }
 
   .watt-custom-row {
-    margin-top: 10px;
+    margin-top: 6px;
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
   }
 
   .watt-custom-row label {
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     color: var(--muted);
     white-space: nowrap;
     font-weight: 400;
@@ -239,12 +240,12 @@
     flex: 1;
     background: var(--panel);
     border: 2px solid transparent;
-    border-radius: 10px;
+    border-radius: 8px;
     font-family: 'DM Mono', monospace;
-    font-size: 1rem;
+    font-size: 0.9rem;
     color: var(--charcoal);
     text-align: center;
-    padding: 8px;
+    padding: 5px 8px;
     outline: none;
     transition: border-color 0.2s;
     -moz-appearance: textfield;
@@ -262,12 +263,12 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 4px 0 0;
+    padding: 0;
   }
 
   .convert-arrow svg {
-    width: 28px;
-    height: 28px;
+    width: 18px;
+    height: 18px;
     stroke: var(--sand);
     stroke-width: 2;
     fill: none;
@@ -277,22 +278,22 @@
 
   /* Result */
   .result-card {
-    margin: 0 16px 16px;
+    margin: 0 12px 0;
     background: var(--charcoal);
-    border-radius: 20px;
-    padding: 28px 24px;
+    border-radius: 16px;
+    padding: 10px 14px;
     border: 1px solid rgba(255,255,255,0.04);
-    box-shadow: 0 4px 24px rgba(44,40,37,0.18);
+    box-shadow: 0 4px 16px rgba(44,40,37,0.18);
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
     transition: opacity 0.3s;
-    min-height: 120px;
     justify-content: center;
+    flex: 1;
   }
 
   .result-label {
-    font-size: 0.7rem;
+    font-size: 0.65rem;
     font-weight: 500;
     letter-spacing: 0.12em;
     text-transform: uppercase;
@@ -301,7 +302,7 @@
 
   .result-time {
     font-family: 'DM Serif Display', serif;
-    font-size: 3.6rem;
+    font-size: 3rem;
     color: var(--warm-white);
     line-height: 1;
     letter-spacing: -0.02em;
@@ -309,7 +310,7 @@
 
   .result-time .unit {
     font-family: 'DM Sans', sans-serif;
-    font-size: 1.1rem;
+    font-size: 1rem;
     font-weight: 300;
     color: var(--sand);
     margin-left: 4px;
@@ -317,10 +318,10 @@
   }
 
   .result-hint {
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     color: var(--muted);
     font-weight: 300;
-    margin-top: 4px;
+    margin-top: 2px;
   }
 
   .result-hint strong {
@@ -329,44 +330,15 @@
   }
 
   .result-empty {
-    font-size: 0.95rem;
+    font-size: 0.9rem;
     color: var(--muted);
     font-weight: 300;
     font-style: italic;
   }
 
-  /* Explanation pill */
-  .info-pill {
-    margin: 0 16px;
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    background: rgba(232,144,58,0.08);
-    border: 1px solid rgba(232,144,58,0.2);
-    border-radius: 14px;
-    padding: 14px 16px;
-  }
-
-  .info-pill svg {
-    flex-shrink: 0;
-    margin-top: 1px;
-    width: 16px;
-    height: 16px;
-    stroke: var(--amber);
-    fill: none;
-    stroke-width: 2;
-    stroke-linecap: round;
-  }
-
-  .info-pill p {
-    font-size: 0.78rem;
-    color: var(--muted);
-    line-height: 1.55;
-  }
-
   /* Animations */
   @keyframes fadeUp {
-    from { opacity: 0; transform: translateY(8px); }
+    from { opacity: 0; transform: translateY(6px); }
     to   { opacity: 1; transform: translateY(0); }
   }
 
@@ -386,8 +358,10 @@
         <path d="M2 9h20"/>
       </svg>
     </div>
-    <h1>Micro<span>·</span>ondes<br>Convertisseur</h1>
-    <p class="subtitle">Adapte ton temps de cuisson<br>à la puissance de ton four.</p>
+    <div class="header-text">
+      <h1>Micro<span>·</span>ondes Convertisseur</h1>
+      <p class="subtitle">Adapte le temps à la puissance de ton four.</p>
+    </div>
   </header>
 
   <!-- Temps de référence -->
@@ -436,12 +410,6 @@
     <div id="resultContent" class="result-empty">Remplis les champs ci-dessus</div>
   </div>
 
-  <!-- Info formule -->
-  <div class="info-pill">
-    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-    <p>Formule&nbsp;: <strong>t₂ = t₁ × P₁ ÷ P₂</strong><br>
-    L'énergie déposée dans les aliments reste la même — on ajuste la durée proportionnellement à la puissance.</p>
-  </div>
 
 </div>
 
