@@ -265,7 +265,7 @@
     <div class="card-label">Décompression <small>(temps au fond : surface → début de remontée)</small></div>
     <div class="row c2" data-group="algo">
       <button class="btn" data-v="buhlmann"><b>Bühlmann</b><i>ZH-L16C, GF 40/85</i></button>
-      <button class="btn" data-v="mn90" disabled><b>Table MN90</b><i>données à charger</i></button>
+      <button class="btn" data-v="mn90"><b>Table MN90</b><i>FFESSM 1999, O₂ ×2/3</i></button>
     </div>
   </div>
 
@@ -291,7 +291,7 @@
   <div id="results"></div>
 
   <p class="disclaimer">
-    Outil indicatif : Bühlmann ZH-L16C, GF 40/85, temps au fond = de la sortie de surface au début de remontée, descente 20 m/min, remontée 10 m/min, palier de sécurité 3 min à 3 m,
+    Outil indicatif : Bühlmann ZH-L16C (GF 40/85) ou table MN90 (nitrox par profondeur équivalente air, O₂ pur aux paliers de 6 et 3 m avec durées ×2/3 ; les autres gaz de déco ne sont pas pris en compte en MN90), temps au fond = de la sortie de surface au début de remontée, descente 20 m/min, remontée 10 m/min (15 m/min en MN90), palier de sécurité 3 min à 3 m,
     bloc gonflé à 200 bar avec 50 bar de réserve, SNC limité à 80 % (tables NOAA).
     Gaz de déco : ppO₂ 1,6 max (EAN 50, EAN 80 ≤ 7 L ; O₂ ≤ 4 L). Ne remplace ni les tables MN90,
     ni un ordinateur, ni l'analyse de vos mélanges. Vérifiez toujours le contenu de vos blocs.
@@ -397,6 +397,82 @@ function ascend(st, D, gases) {
   return { stops, deco };
 }
 
+// Table MN90 (FFESSM CTR Bretagne & Pays de la Loire, version du 03/05/1999, J.-N. Trucco).
+// Ligne : [durée de plongée (min), palier 15 m, 12 m, 9 m, 6 m, 3 m (min), GPS] ; GPS "*" = successive interdite.
+// Remontée 15-17 m/min, changement de palier 1 m/10 s.
+const MN90 = {
+  6: [[15,0,0,0,0,0,"A"],[30,0,0,0,0,0,"B"],[45,0,0,0,0,0,"C"],[75,0,0,0,0,0,"D"],[105,0,0,0,0,0,"E"],[135,0,0,0,0,0,"F"],[180,0,0,0,0,0,"G"],[240,0,0,0,0,0,"H"],[315,0,0,0,0,0,"I"],[360,0,0,0,0,0,"J"]],
+  8: [[15,0,0,0,0,0,"B"],[30,0,0,0,0,0,"C"],[45,0,0,0,0,0,"D"],[60,0,0,0,0,0,"E"],[90,0,0,0,0,0,"F"],[105,0,0,0,0,0,"G"],[135,0,0,0,0,0,"H"],[165,0,0,0,0,0,"I"],[195,0,0,0,0,0,"J"],[255,0,0,0,0,0,"K"],[300,0,0,0,0,0,"L"],[360,0,0,0,0,0,"M"]],
+  10: [[15,0,0,0,0,0,"B"],[30,0,0,0,0,0,"C"],[45,0,0,0,0,0,"D"],[60,0,0,0,0,0,"F"],[75,0,0,0,0,0,"G"],[105,0,0,0,0,0,"H"],[120,0,0,0,0,0,"I"],[135,0,0,0,0,0,"J"],[165,0,0,0,0,0,"K"],[180,0,0,0,0,0,"L"],[240,0,0,0,0,0,"M"],[255,0,0,0,0,0,"N"],[315,0,0,0,0,0,"O"],[330,0,0,0,0,0,"P"],[360,0,0,0,0,1,"P"]],
+  12: [[5,0,0,0,0,0,"A"],[15,0,0,0,0,0,"B"],[25,0,0,0,0,0,"C"],[35,0,0,0,0,0,"D"],[45,0,0,0,0,0,"E"],[55,0,0,0,0,0,"F"],[65,0,0,0,0,0,"G"],[80,0,0,0,0,0,"H"],[90,0,0,0,0,0,"I"],[105,0,0,0,0,0,"J"],[120,0,0,0,0,0,"K"],[135,0,0,0,0,0,"L"],[140,0,0,0,0,2,"L"],[150,0,0,0,0,4,"M"],[160,0,0,0,0,6,"M"],[170,0,0,0,0,7,"N"],[180,0,0,0,0,9,"N"],[190,0,0,0,0,11,"N"],[200,0,0,0,0,13,"O"],[210,0,0,0,0,14,"O"],[220,0,0,0,0,15,"O"],[230,0,0,0,0,16,"O"],[240,0,0,0,0,17,"O"],[250,0,0,0,0,18,"P"],[255,0,0,0,0,19,"P"],[270,0,0,0,0,22,"P"],[285,0,0,0,0,24,"P"],[300,0,0,0,0,26,"P"],[315,0,0,0,0,27,"*"],[330,0,0,0,0,29,"*"],[345,0,0,0,0,31,"*"],[360,0,0,0,0,33,"*"]],
+  15: [[5,0,0,0,0,0,"A"],[10,0,0,0,0,0,"B"],[15,0,0,0,0,0,"C"],[20,0,0,0,0,0,"C"],[25,0,0,0,0,0,"D"],[30,0,0,0,0,0,"E"],[35,0,0,0,0,0,"E"],[40,0,0,0,0,0,"F"],[45,0,0,0,0,0,"G"],[50,0,0,0,0,0,"G"],[55,0,0,0,0,0,"H"],[60,0,0,0,0,0,"H"],[65,0,0,0,0,0,"I"],[70,0,0,0,0,0,"I"],[75,0,0,0,0,0,"J"],[80,0,0,0,0,2,"J"],[85,0,0,0,0,4,"K"],[90,0,0,0,0,6,"K"],[95,0,0,0,0,8,"L"],[100,0,0,0,0,11,"L"],[105,0,0,0,0,13,"L"],[110,0,0,0,0,15,"M"],[115,0,0,0,0,17,"M"],[120,0,0,0,0,18,"M"],[130,0,0,0,0,22,"*"],[140,0,0,0,0,25,"*"]],
+  18: [[5,0,0,0,0,0,"B"],[10,0,0,0,0,0,"B"],[15,0,0,0,0,0,"C"],[20,0,0,0,0,0,"D"],[25,0,0,0,0,0,"E"],[30,0,0,0,0,0,"F"],[35,0,0,0,0,0,"F"],[40,0,0,0,0,0,"G"],[45,0,0,0,0,0,"H"],[50,0,0,0,0,0,"H"],[55,0,0,0,0,1,"I"],[60,0,0,0,0,5,"J"],[65,0,0,0,0,8,"J"],[70,0,0,0,0,11,"K"],[75,0,0,0,0,14,"K"],[80,0,0,0,0,17,"L"],[85,0,0,0,0,21,"L"],[90,0,0,0,0,23,"M"],[95,0,0,0,0,26,"M"],[100,0,0,0,0,28,"M"],[105,0,0,0,0,31,"N"],[110,0,0,0,0,34,"N"],[115,0,0,0,0,36,"N"],[120,0,0,0,0,38,"O"],[130,0,0,0,0,42,"*"],[140,0,0,0,0,46,"*"],[150,0,0,0,0,51,"*"]],
+  20: [[5,0,0,0,0,0,"B"],[10,0,0,0,0,0,"B"],[15,0,0,0,0,0,"D"],[20,0,0,0,0,0,"D"],[25,0,0,0,0,0,"E"],[30,0,0,0,0,0,"F"],[35,0,0,0,0,0,"G"],[40,0,0,0,0,0,"H"],[45,0,0,0,0,1,"I"],[50,0,0,0,0,4,"I"],[55,0,0,0,0,9,"J"],[60,0,0,0,0,13,"K"],[65,0,0,0,0,16,"K"],[70,0,0,0,0,20,"L"],[75,0,0,0,0,24,"L"],[80,0,0,0,0,27,"M"],[85,0,0,0,0,30,"M"],[90,0,0,0,0,34,"M"],[95,0,0,0,0,37,"*"],[100,0,0,0,0,40,"*"],[105,0,0,0,0,43,"*"],[110,0,0,0,0,45,"*"],[115,0,0,0,0,48,"*"],[120,0,0,0,1,49,"*"]],
+  22: [[5,0,0,0,0,0,"B"],[10,0,0,0,0,0,"C"],[15,0,0,0,0,0,"D"],[20,0,0,0,0,0,"E"],[25,0,0,0,0,0,"F"],[30,0,0,0,0,0,"G"],[35,0,0,0,0,0,"H"],[40,0,0,0,0,2,"I"],[45,0,0,0,0,7,"I"],[50,0,0,0,0,12,"J"],[55,0,0,0,0,16,"K"],[60,0,0,0,0,20,"K"],[65,0,0,0,0,25,"L"],[70,0,0,0,0,29,"L"],[75,0,0,0,0,33,"M"],[80,0,0,0,0,37,"M"],[85,0,0,0,0,41,"N"],[90,0,0,0,0,44,"N"],[95,0,0,0,2,46,"*"],[100,0,0,0,4,47,"*"],[105,0,0,0,5,49,"*"],[110,0,0,0,7,51,"*"],[115,0,0,0,9,53,"*"],[120,0,0,0,11,55,"*"]],
+  25: [[5,0,0,0,0,0,"B"],[10,0,0,0,0,0,"C"],[15,0,0,0,0,0,"D"],[20,0,0,0,0,0,"E"],[25,0,0,0,0,1,"F"],[30,0,0,0,0,2,"H"],[35,0,0,0,0,5,"I"],[40,0,0,0,0,10,"J"],[45,0,0,0,0,16,"J"],[50,0,0,0,0,21,"K"],[55,0,0,0,0,27,"L"],[60,0,0,0,0,32,"L"],[65,0,0,0,0,37,"M"],[70,0,0,0,1,41,"M"],[75,0,0,0,4,43,"N"],[80,0,0,0,7,45,"N"],[85,0,0,0,9,48,"O"],[90,0,0,0,11,50,"O"],[95,0,0,0,14,51,"*"],[100,0,0,0,16,54,"*"],[105,0,0,0,19,56,"*"],[110,0,0,0,21,59,"*"],[115,0,0,0,23,61,"*"],[120,0,0,0,24,63,"*"]],
+  28: [[5,0,0,0,0,0,"B"],[10,0,0,0,0,0,"D"],[15,0,0,0,0,0,"E"],[20,0,0,0,0,1,"F"],[25,0,0,0,0,2,"G"],[30,0,0,0,0,6,"H"],[35,0,0,0,0,12,"I"],[40,0,0,0,0,19,"J"],[45,0,0,0,0,25,"K"],[50,0,0,0,0,32,"L"],[55,0,0,0,2,36,"M"],[60,0,0,0,4,40,"M"],[65,0,0,0,8,43,"N"],[70,0,0,0,11,46,"N"],[75,0,0,0,14,48,"O"],[80,0,0,0,17,50,"O"],[85,0,0,0,20,53,"O"],[90,0,0,0,23,56,"P"],[95,0,0,0,26,58,"*"],[100,0,0,0,28,61,"*"],[105,0,0,0,30,64,"*"],[110,0,0,1,32,67,"*"],[115,0,0,2,34,70,"*"],[120,0,0,3,36,73,"*"]],
+  30: [[5,0,0,0,0,0,"B"],[10,0,0,0,0,0,"D"],[15,0,0,0,0,1,"E"],[20,0,0,0,0,2,"F"],[25,0,0,0,0,4,"H"],[30,0,0,0,0,9,"I"],[35,0,0,0,0,17,"J"],[40,0,0,0,0,24,"K"],[45,0,0,0,1,31,"L"],[50,0,0,0,3,36,"M"],[55,0,0,0,6,39,"M"],[60,0,0,0,10,43,"N"],[65,0,0,0,14,46,"N"],[70,0,0,0,17,48,"O"],[75,0,0,0,20,50,"*"],[80,0,0,0,24,54,"*"],[85,0,0,0,27,57,"*"],[90,0,0,0,30,60,"*"]],
+  32: [[5,0,0,0,0,0,"B"],[10,0,0,0,0,0,"D"],[15,0,0,0,0,1,"E"],[20,0,0,0,0,3,"G"],[25,0,0,0,0,6,"H"],[30,0,0,0,0,14,"I"],[35,0,0,0,0,22,"K"],[40,0,0,0,1,29,"K"],[45,0,0,0,4,34,"L"],[50,0,0,0,7,39,"M"],[55,0,0,0,11,43,"N"],[60,0,0,0,15,46,"N"],[65,0,0,0,19,48,"O"],[70,0,0,0,23,50,"O"],[75,0,0,0,27,54,"*"],[80,0,0,2,29,58,"*"],[85,0,0,4,30,61,"*"],[90,0,0,6,32,64,"*"]],
+  35: [[5,0,0,0,0,0,"C"],[10,0,0,0,0,0,"D"],[15,0,0,0,0,2,"F"],[20,0,0,0,0,5,"H"],[25,0,0,0,0,11,"I"],[30,0,0,0,1,20,"J"],[35,0,0,0,2,27,"K"],[40,0,0,0,5,34,"L"],[45,0,0,0,9,39,"M"],[50,0,0,0,14,43,"N"],[55,0,0,0,18,47,"N"],[60,0,0,0,22,50,"O"],[65,0,0,2,26,52,"*"],[70,0,0,4,28,57,"*"],[75,0,0,7,30,60,"*"],[80,0,0,10,31,64,"*"],[85,0,0,12,33,69,"*"],[90,0,0,14,36,72,"*"]],
+  38: [[5,0,0,0,0,0,"C"],[10,0,0,0,0,1,"E"],[15,0,0,0,0,4,"F"],[20,0,0,0,0,8,"H"],[25,0,0,0,1,16,"J"],[30,0,0,0,3,24,"K"],[35,0,0,0,5,33,"L"],[40,0,0,0,10,38,"M"],[45,0,0,0,15,43,"N"],[50,0,0,0,20,47,"N"],[55,0,0,2,23,50,"O"],[60,0,0,5,27,53,"P"],[65,0,0,8,29,58,"*"],[70,0,0,11,31,62,"*"],[75,0,0,14,33,66,"*"],[80,0,0,17,35,71,"*"],[85,0,0,20,36,76,"*"],[90,0,0,23,38,81,"*"]],
+  40: [[5,0,0,0,0,0,"C"],[10,0,0,0,0,2,"E"],[15,0,0,0,0,4,"G"],[20,0,0,0,1,9,"H"],[25,0,0,0,2,19,"J"],[30,0,0,0,4,28,"K"],[35,0,0,0,8,35,"L"],[40,0,0,0,13,40,"M"],[45,0,0,1,18,45,"N"],[50,0,0,2,23,48,"O"],[55,0,0,5,26,52,"O"],[60,0,0,8,29,57,"P"],[65,0,0,12,31,61,"*"],[70,0,0,15,33,66,"*"],[75,0,0,18,35,71,"*"],[80,0,1,21,37,75,"*"],[85,0,3,23,38,82,"*"],[90,0,5,24,39,88,"*"]],
+  42: [[5,0,0,0,0,0,"C"],[10,0,0,0,0,2,"E"],[15,0,0,0,0,5,"G"],[20,0,0,0,1,12,"I"],[25,0,0,0,3,22,"J"],[30,0,0,0,6,31,"L"],[35,0,0,0,11,37,"M"],[40,0,0,1,16,43,"N"],[45,0,0,3,21,47,"*"],[50,0,0,6,24,50,"*"],[55,0,0,8,29,55,"*"],[60,0,0,13,30,60,"*"]],
+  45: [[5,0,0,0,0,0,"C"],[10,0,0,0,0,3,"F"],[15,0,0,0,1,6,"H"],[20,0,0,0,3,15,"I"],[25,0,0,0,5,25,"K"],[30,0,0,0,9,35,"L"],[35,0,0,1,15,40,"M"],[40,0,0,3,20,46,"N"],[45,0,0,6,24,50,"*"],[50,0,0,10,28,54,"*"],[55,0,0,14,30,60,"*"],[60,0,1,18,32,65,"*"]],
+  48: [[5,0,0,0,0,0,"D"],[10,0,0,0,0,4,"F"],[15,0,0,0,2,7,"H"],[20,0,0,0,4,19,"J"],[25,0,0,0,7,30,"K"],[30,0,0,1,12,37,"M"],[35,0,0,3,18,44,"N"],[40,0,0,6,23,48,"O"],[45,0,0,10,27,53,"*"],[50,0,1,14,30,59,"*"],[55,0,2,18,32,64,"*"],[60,0,5,19,36,70,"*"]],
+  50: [[5,0,0,0,0,1,"D"],[10,0,0,0,0,4,"F"],[15,0,0,0,2,9,"H"],[20,0,0,0,4,22,"J"],[25,0,0,1,8,32,"L"],[30,0,0,2,14,39,"M"],[35,0,0,5,20,45,"N"],[40,0,0,9,24,50,"O"],[45,0,1,12,29,55,"*"],[50,0,2,17,30,62,"*"],[55,0,5,19,34,67,"*"],[60,0,8,21,37,74,"*"]],
+  52: [[5,0,0,0,0,1,"D"],[10,0,0,0,1,4,"F"],[15,0,0,0,3,10,"I"],[20,0,0,1,5,23,"K"],[25,0,0,2,9,34,"L"],[30,0,0,4,15,41,"M"],[35,0,0,6,22,47,"O"],[40,0,1,10,26,52,"O"],[45,0,2,15,29,59,"*"],[50,0,5,17,32,64,"*"],[55,0,8,19,36,71,"*"],[60,0,11,22,38,78,"*"]],
+  55: [[5,0,0,0,0,1,"D"],[10,0,0,0,1,5,"G"],[15,0,0,0,4,13,"I"],[20,0,0,1,6,27,"K"],[25,0,0,3,11,37,"M"],[30,0,0,6,18,44,"N"],[35,0,1,9,23,50,"O"],[40,0,3,12,29,55,"P"],[45,0,5,17,31,62,"*"],[50,0,8,19,35,69,"*"],[55,0,12,22,37,76,"*"],[60,2,14,24,39,86,"*"]],
+  58: [[5,0,0,0,0,2,"D"],[10,0,0,0,2,5,"G"],[15,0,0,1,4,16,"J"],[20,0,0,2,7,30,"K"],[25,0,0,4,13,40,"M"],[30,0,1,7,21,46,"N"],[35,0,2,11,26,52,"O"],[40,0,5,15,30,59,"P"],[45,0,8,18,33,66,"*"],[50,1,11,21,37,74,"*"],[55,3,14,23,39,83,"*"],[60,5,16,25,42,92,"*"]],
+  60: [[5,0,0,0,0,2,"D"],[10,0,0,0,2,6,"G"],[15,0,0,1,4,19,"J"],[20,0,0,3,8,32,"L"],[25,0,0,5,15,41,"M"],[30,0,1,8,22,48,"O"],[35,0,4,11,28,54,"P"],[40,0,6,17,30,62,"P"],[45,1,9,19,35,69,"*"],[50,2,13,22,37,78,"*"],[55,5,15,24,40,88,"*"],[60,7,17,26,44,96,"*"]],
+  62: [[5,0,0,0,0,2,"*"],[10,0,0,0,2,7,"*"],[15,0,0,1,5,21,"*"]],
+  65: [[5,0,0,0,0,3,"*"],[10,0,0,0,3,8,"*"],[15,0,0,2,5,24,"*"]]
+};
+
+const MN_DEPTHS = Object.keys(MN90).map(Number).sort((a, b) => a - b);
+// Lecture de la table : profondeur équivalente air (mélanges), durée arrondie au-dessus
+function mnRow(D, fo2, bt) {
+  let deq = D;
+  if (fo2 > 0.215) deq = ((D / 10 + 1) * (1 - fo2) / 0.8 - 1) * 10;   // Pabs éq = Pabs × %N2 / 0,8
+  const dt = MN_DEPTHS.find(x => x >= deq - 1e-9);
+  if (!dt) return { err: true, max: null };
+  const rows = MN90[dt];
+  const row = rows.find(r => r[0] >= bt - 1e-9);
+  if (!row) return { err: true, dt, max: rows[rows.length - 1][0] };
+  return { dt, row };
+}
+// Remontée MN90 : paliers de la table, O₂ pur aux paliers de 6 et 3 m (durée ×2/3 si total ≥ 5 min)
+function ascendMN90(st, D, gases, row) {
+  const gasAt = d => {
+    let g = gases[0];
+    for (const x of gases) if (x.maxD >= d && x.gas.fo2 > g.gas.fo2) g = x;
+    return g.gas;
+  };
+  const tbl = { 15: row[1], 12: row[2], 9: row[3], 6: row[4], 3: row[5] };
+  let eff = tbl, o2red = false;
+  if (gases.some(x => x.gas.fo2 === 1)) {
+    const red = Object.assign({}, tbl);
+    for (const k of [6, 3]) if (tbl[k]) red[k] = Math.ceil(tbl[k] * 2 / 3 - 1e-9);
+    if (Object.values(red).reduce((a, b) => a + b, 0) >= 5) { eff = red; o2red = red[6] !== tbl[6] || red[3] !== tbl[3]; }
+  }
+  const deco = Object.values(eff).reduce((a, b) => a + b, 0);
+  const plan = [];
+  for (const k of [15, 12, 9, 6, 3]) {
+    let m = eff[k];
+    if (k === 3 && D >= 10 && m < 3) m = 3;                  // palier de sécurité
+    if (m > 0 && k < D) plan.push([k, m]);
+  }
+  const stops = [];
+  let d = D, first = true;
+  for (const [k, m] of plan) {
+    advance(st, d, k, (d - k) / (first ? 15 : 6), gasAt(d), 'asc');
+    d = k; first = false;
+    advance(st, d, d, m, gasAt(d), 'palier');
+    stops.push({ d, min: m, gas: gasAt(d) });
+  }
+  advance(st, d, 0, d / 15, gasAt(d), 'asc');
+  return { stops, deco, o2red };
+}
+
 // Vérifie les contraintes (gaz, déco, SNC) d'un profil simulé
 function assess(c, r, bottom, gases, cfg) {
   const usable = cfg.vol * (FILL - RESERVE);
@@ -410,25 +486,38 @@ function assess(c, r, bottom, gases, cfg) {
   const flags = { gas: needB <= usable, decoGas: !decoIssues.length, deco: r.deco <= decoLimit, cns: c.cns <= CNS_MAX };
   return { usable, needB, decoIssues, decoLimit, flags, ok: flags.gas && flags.decoGas && flags.deco && flags.cns };
 }
-const FAIL_TXT = { gas: 'gaz du bloc', decoGas: 'gaz de déco', deco: 'durée des paliers', cns: 'SNC', max: 'durée max (4 h)' };
+const FAIL_TXT = { gas: 'gaz du bloc', decoGas: 'gaz de déco', deco: 'durée des paliers', cns: 'SNC', max: 'durée max (4 h)', table: 'limite de la table MN90' };
 const firstFail = fl => ['gas', 'decoGas', 'deco', 'cns'].find(k => !fl[k]) || null;
 
 // Profil complet pour un temps au fond donné (surface → début de remontée)
 function simulate(bottom, gases, D, bt, cfg) {
   const tDesc = D / DESC;
   if (bt < tDesc - 1e-9) return { err: 'desc', D, bt };
+  const mn = cfg.algo === 'mn90' ? mnRow(D, bottom.fo2, bt) : null;
+  if (mn && mn.err) return { err: 'table', D, bt, dt: mn.dt, max: mn.max };
   const st = newState();
   advance(st, 0, D, tDesc, bottom, 'desc');
   advance(st, D, D, bt - tDesc, bottom, 'fond');
-  const r = ascend(st, D, gases);
+  const r = mn ? ascendMN90(st, D, gases, mn.row) : ascend(st, D, gases);
   if (!r) return { err: 'deco', D, bt };
-  return Object.assign({ D, bt, rt: st.time, cns: st.cns, use: st.use, log: st.log, stops: r.stops, deco: r.deco },
+  return Object.assign({ D, bt, rt: st.time, cns: st.cns, use: st.use, log: st.log, stops: r.stops, deco: r.deco,
+    mn: mn ? { dt: mn.dt, t: mn.row[0], gps: mn.row[6], o2red: r.o2red } : null },
     assess(st, r, bottom, gases, cfg));
 }
 
 // Plus grand temps au fond (minutes entières) respectant toutes les contraintes
 function scanMax(bottom, gases, D, cfg) {
   const tDesc = D / DESC, bt0 = Math.ceil(tDesc - 1e-9);
+  if (cfg.algo === 'mn90') {
+    let best = null, limit = 'max';
+    for (let bt = bt0; bt <= MAX_BT; bt++) {
+      const s = simulate(bottom, gases, D, bt, cfg);
+      if (s.err) { limit = s.err === 'table' ? 'table' : 'deco'; break; }
+      if (!s.ok) { limit = firstFail(s.flags); break; }
+      best = bt;
+    }
+    return { bt: best, limit };
+  }
   const st = newState();
   advance(st, 0, D, tDesc, bottom, 'desc');
   advance(st, D, D, bt0 - tDesc, bottom, 'fond');
@@ -457,12 +546,13 @@ function makeDefs(cfg) {
   if (has('air')) defs.push({ key: 'air', title: 'Air', bottom: air, deco: [], dupOf: null });
   const nxIsAir = bestMix().fo2 <= 0.215 && has('air');   // trop profond pour un vrai nitrox : même profil que l'air
   if (has('nitrox') && !nxIsAir) defs.push({ key: 'nx', title: 'Nitrox fond', bottom: bestMix(), deco: [], dupOf: null });
-  if (has('air') && (has('nitrox') || has('o2')))
-    defs.push({ key: 'airdeco', title: 'Air + déco nitrox', bottom: air,
-      deco: [].concat(has('nitrox') ? [ean50] : [], has('o2') ? [o2] : []), dupOf: 'air' });
-  if (has('nitrox') && !nxIsAir)
-    defs.push({ key: 'nxdeco', title: 'Nitrox + déco riche', bottom: bestMix(),
-      deco: [].concat([ean80], has('o2') ? [o2] : []), dupOf: 'nx' });
+  const mn = cfg.algo === 'mn90';     // MN90 : seul l'O₂ pur (paliers 6 et 3 m) est prévu en déco
+  if (has('air') && (mn ? has('o2') : (has('nitrox') || has('o2'))))
+    defs.push({ key: 'airdeco', title: mn ? 'Air + déco O₂' : 'Air + déco nitrox', bottom: air,
+      deco: mn ? [o2] : [].concat(has('nitrox') ? [ean50] : [], has('o2') ? [o2] : []), dupOf: 'air' });
+  if (has('nitrox') && !nxIsAir && (!mn || has('o2')))
+    defs.push({ key: 'nxdeco', title: mn ? 'Nitrox + déco O₂' : 'Nitrox + déco riche', bottom: bestMix(),
+      deco: mn ? [o2] : [].concat([ean80], has('o2') ? [o2] : []), dupOf: 'nx' });
   for (const d of defs) {
     d.D0 = Math.floor(Math.min(wanted, modOf(d.bottom.fo2, cfg.ppo2)));
     d.gases = [{ gas: d.bottom, maxD: Infinity }].concat(
@@ -522,7 +612,7 @@ function suggestions(sol, cfg) {
   const out = [];
   const key = sol.def.key;
   if (sol.err === 'desc') return [`Temps au fond ≥ ${Math.ceil(sol.D / DESC)} min (temps de descente)`];
-  if (!sol.err && sol.scan && sol.scan.bt != null && sol.scan.bt < cfg.tbot && !sol.ok)
+  if (sol.scan && sol.scan.bt != null && sol.scan.bt < cfg.tbot && !sol.ok)
     out.push(`Temps au fond ≤ ${sol.scan.bt} min`);
   if (!sol.ok) {
     for (let D = sol.D - 1; D >= 6; D--) {
@@ -583,6 +673,7 @@ function reasons(sol, cfg) {
   const r = [];
   if (sol.err === 'desc') return [`temps au fond inférieur à la descente (${Math.ceil(sol.D / DESC)} min)`];
   if (sol.err === 'deco') return ['paliers supérieurs à 5 h'];
+  if (sol.err === 'table') return [sol.max ? `hors table MN90 : ${sol.max} min maximum à ${sol.dt} m (profondeur équivalente)` : 'hors table MN90 : profondeur équivalente > 65 m'];
   if (!sol.flags.gas) r.push(`gaz du bloc insuffisant : il manque ${fmt(sol.needB - sol.usable)} L`);
   if (!sol.flags.decoGas) r.push(sol.decoIssues.map(i => `${i.gas.name} : ${fmt(i.L)} L > ${fmt(i.capL)} L (poney ${i.gas.cap} L max)`).join(' ; '));
   if (!sol.flags.deco) r.push(`paliers de ${sol.deco} min > ${sol.decoLimit} min autorisées en plongée ${cfg.mode === 'shallow' ? 'peu profonde' : 'profonde'}`);
@@ -701,6 +792,7 @@ function card(sol, cfg, idx) {
       <div class="tile wide">
         <div class="lbl">Paliers</div>
         <div class="stops">${stopsHtml}</div>
+        ${sol.mn ? `<div class="det" style="margin-top:4px">Table MN90 lue à ${sol.mn.dt} m${sol.mn.dt !== sol.D ? ' (équivalent air)' : ''} · ${sol.mn.t} min · GPS ${sol.mn.gps === '*' ? '— (successive interdite)' : sol.mn.gps}${sol.mn.o2red ? ' · paliers O₂ réduits (×2/3)' : ''}</div>` : ''}
       </div>
     </div>
     ${warns.length ? `<div class="warnings">${warns.map(w => '⚠ ' + w).join('<br>')}</div>` : ''}
@@ -714,7 +806,7 @@ function load() {
   try {
     const s = JSON.parse(localStorage.getItem('nitroxPlanner') || 'null');
     if (!s) return;
-    state.algo = 'buhlmann';
+    if (s.algo === 'buhlmann' || s.algo === 'mn90') state.algo = s.algo;
     if (s.mode === 'deep' || s.mode === 'shallow') state.mode = s.mode;
     if (s.vol === 12 || s.vol === 15) state.vol = s.vol;
     if ([1.3, 1.4, 1.6].includes(s.ppo2)) state.ppo2 = s.ppo2;
@@ -746,7 +838,7 @@ function render() {
   SAC = state.sac;
   const cfg = {
     mode: state.mode, vol: state.vol, ppo2: state.ppo2, gas: state.gas,
-    depth: state.depth, tbot: state.time || null, sac: state.sac
+    depth: state.depth, tbot: state.time || null, sac: state.sac, algo: state.algo
   };
   const box = $('results');
   if (!state.gas.size) {
