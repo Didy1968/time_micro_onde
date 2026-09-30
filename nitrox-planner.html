@@ -197,6 +197,13 @@
   .v-bad { background: rgba(255,107,94,.14); color: #ff8a7f; }
   .fix { margin-top: 6px; padding: 7px 10px; border-radius: 10px; background: rgba(240,176,74,.12); font-size: .74rem; color: #f0b04a; line-height: 1.4; }
   .fix ul { margin: 3px 0 0 16px; }
+  .v-neutral { background: rgba(255,255,255,.07); color: var(--sand); font-weight: 400; }
+  .v-neutral b { color: var(--amber); font-weight: 500; }
+  .mut { color: var(--muted); }
+  .cmp { display: grid; grid-template-columns: 27% 1fr 1fr; gap: 1px 6px; font-size: .72rem; line-height: 1.35; }
+  .cmp > div { padding: 4px 0; border-top: 1px solid rgba(255,255,255,.07); font-family: 'DM Mono', monospace; }
+  .cmp .cl { font-family: 'DM Sans', sans-serif; font-size: .6rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding-top: 6px; }
+  .cmp .ch { font-family: 'DM Sans', sans-serif; font-size: .65rem; font-weight: 500; letter-spacing: .1em; text-transform: uppercase; border-top: none; }
   .warnings { margin-top: 8px; font-size: .68rem; color: #f0b04a; line-height: 1.4; }
 
   .empty { margin: 0 20px; font-size: .9rem; color: var(--muted); font-style: italic; font-weight: 300; }
@@ -263,9 +270,10 @@
 
   <div class="card">
     <div class="card-label">Décompression <small>(temps au fond : surface → début de remontée)</small></div>
-    <div class="row c2" data-group="algo">
+    <div class="row c3" data-group="algo">
       <button class="btn" data-v="buhlmann"><b>Bühlmann</b><i>ZH-L16C, GF 40/85</i></button>
-      <button class="btn" data-v="mn90"><b>Table MN90</b><i>FFESSM 1999, O₂ ×2/3</i></button>
+      <button class="btn" data-v="mn90"><b>Table MN90</b><i>FFESSM 1999</i></button>
+      <button class="btn" data-v="compare"><b>Comparer</b><i>les deux</i></button>
     </div>
   </div>
 
@@ -799,6 +807,106 @@ function card(sol, cfg, idx) {
   </div>`;
 }
 
+// ───────────── Comparaison Bühlmann / MN90 ─────────────
+const CMP_COL = { b: 'var(--amber)', m: 'var(--g-air)' };
+const CMP_TITLE = { air: 'Air', nx: 'Nitrox fond', airdeco: 'Air + déco', nxdeco: 'Nitrox + déco' };
+
+function chartCompare(B, M) {
+  const W = 320, H = 128, pl = 28, pr = 8, pt = 10, pb = 16;
+  const sols = [[B, CMP_COL.b, ''], [M, CMP_COL.m, '5 3']].filter(s => s[0] && !s[0].err);
+  if (!sols.length) return '';
+  const T = Math.max(...sols.map(s => s[0].rt)), Dm = Math.max(6, ...sols.map(s => s[0].D));
+  const x = t => pl + (W - pl - pr) * t / T;
+  const y = d => pt + (H - pt - pb) * d / Dm;
+  let body = '';
+  for (const [s, col, dash] of sols) {
+    let t = 0, pts = [`${x(0).toFixed(1)},${y(0).toFixed(1)}`];
+    for (const e of s.log) { t += e.dur; pts.push(`${x(t).toFixed(1)},${y(e.d1).toFixed(1)}`); }
+    body += `<polyline points="${pts.join(' ')}" fill="none" style="stroke:${col}" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round" ${dash ? `stroke-dasharray="${dash}"` : ''}/>`;
+  }
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Profils comparés">
+    <line x1="${pl}" y1="${y(0)}" x2="${W - pr}" y2="${y(0)}" stroke="#5a524a" stroke-width="1"/>
+    <line x1="${pl}" y1="${y(Dm)}" x2="${W - pr}" y2="${y(Dm)}" stroke="#5a524a" stroke-width="1" stroke-dasharray="3 3"/>
+    ${body}
+    <text x="${pl - 4}" y="${y(0) + 3}" text-anchor="end">0</text>
+    <text x="${pl - 4}" y="${y(Dm) + 3}" text-anchor="end">${Dm}m</text>
+    <text x="${pl}" y="${H - 3}">0</text>
+    <text x="${W - pr}" y="${H - 3}" text-anchor="end">${r0(T)} min</text>
+  </svg>`;
+}
+
+function cmpCell(s, cfg, what) {
+  if (!s) return '<span class="mut">—</span>';
+  if (s.err) return what === 'verdict' ? `<span class="bad">✗ ${reasons(s, cfg)[0]}</span>` : '<span class="mut">—</span>';
+  const stops = s.stops.length ? s.stops.map(p => `${p.d} m ${p.min}′`).join(' · ') : 'aucun';
+  switch (what) {
+    case 'depth': return `<span class="${s.depthOk ? 'ok' : 'bad'}">${s.D} m</span>`;
+    case 'bt': return `${r0(s.bt)} min`;
+    case 'max': return s.scan && s.scan.bt != null ? `${s.scan.bt} min` : '—';
+    case 'rt': return `${r0(s.rt)} min`;
+    case 'stops': return stops;
+    case 'deco': return `${s.deco} min`;
+    case 'deg': {
+      const used = s.gases.slice(1).filter(x => (s.use[x.gas.id] || 0) > 0).map(x => x.gas.name);
+      return used.length ? used.join(' / ') : '—';
+    }
+    case 'cns': return `<span class="${s.cns < 50 ? 'ok' : s.cns <= CNS_MAX ? 'warn' : 'bad'}">${s.cns < 1 ? '<1' : r0(s.cns)} %</span>`;
+    case 'gas': return `<span class="${s.flags.gas ? 'ok' : 'bad'}">${fmt(s.needB)} L</span><br><span class="mut">/ ${fmt(s.usable)} dispo</span>`;
+    case 'verdict': return s.feasible ? '<span class="ok">✓ réalisable</span>' : `<span class="bad">✗ ${reasons(s, cfg)[0]}</span>`;
+  }
+  return '';
+}
+
+function compareCard(key, B, M, cfg) {
+  const rows = [
+    ['Profondeur max', 'depth'], ['Temps au fond', 'bt'],
+    ...(cfg.tbot ? [['Fond max possible', 'max']] : []),
+    ['Durée totale', 'rt'], ['Paliers', 'stops'], ['Durée des paliers', 'deco'], ['Gaz de déco', 'deg'],
+    ['SNC', 'cns'], ['Gaz du bloc', 'gas'], ['Verdict', 'verdict']
+  ];
+  const grid = rows.map(([l, w]) => `<div class="cl">${l}</div><div>${cmpCell(B, cfg, w)}</div><div>${cmpCell(M, cfg, w)}</div>`).join('');
+
+  // Synthèse : lequel est le plus prudent ?
+  let sum = '';
+  if (B && M && !B.err && !M.err) {
+    const dd = M.deco - B.deco, dr = M.rt - B.rt, dg = M.needB - B.needB;
+    const sg = v => (v > 0 ? '+' : v < 0 ? '−' : '±') + Math.abs(Math.round(v));
+    const who = dd > 0 ? 'MN90 est plus prudent' : dd < 0 ? 'Bühlmann est plus prudent' : 'paliers équivalents';
+    sum = `<div class="verdict v-neutral"><b>${who}</b> · MN90 vs Bühlmann : paliers ${sg(dd)} min, durée totale ${sg(dr)} min, gaz du bloc ${sg(dg)} L, SNC ${sg(M.cns - B.cns)} %</div>`;
+  }
+  let fix = '';
+  if (cfg.tbot) {
+    const parts = [['Bühlmann', B, 'buhlmann'], ['MN90', M, 'mn90']].filter(([, s]) => s && !s.feasible)
+      .map(([n, s, a]) => `<li><b>${n}</b> : ${suggestions(s, Object.assign({}, cfg, { algo: a })).join(' · ') || 'combiner plusieurs réglages'}</li>`);
+    if (parts.length) fix = `<div class="fix"><b>Pour y arriver, modifier :</b><ul>${parts.join('')}</ul></div>`;
+  }
+  const s0 = (B && !B.err) ? B : (M && !M.err) ? M : null;
+  return `<div class="prop">
+    <div class="prop-head"><div><div class="prop-title">${CMP_TITLE[key]}</div>
+      <div class="prop-sub">Fond ${s0 ? s0.bottom.name : '—'}${M && M.mn ? ` · MN90 lue à ${M.mn.dt} m, ${M.mn.t} min, GPS ${M.mn.gps === '*' ? '—' : M.mn.gps}` : ''}</div></div></div>
+    ${sum}${fix}
+    ${chartCompare(B, M)}
+    <div class="legend"><span style="--c:${CMP_COL.b}">Bühlmann</span><span style="--c:${CMP_COL.m}">MN90 (pointillé)</span></div>
+    <div class="cmp"><div></div><div class="ch" style="color:${CMP_COL.b}">Bühlmann</div><div class="ch" style="color:${CMP_COL.m}">MN90</div>${grid}</div>
+  </div>`;
+}
+
+function renderCompare(cfg) {
+  const pb = buildProposals(Object.assign({}, cfg, { algo: 'buhlmann' }), true);
+  const pm = buildProposals(Object.assign({}, cfg, { algo: 'mn90' }), true);
+  const keys = [];
+  pb.concat(pm).forEach(p => { if (!keys.includes(p.def.key)) keys.push(p.def.key); });
+  const box = $('results');
+  if (!keys.length) {
+    box.innerHTML = '<p class="empty">Aucune proposition : profondeur trop faible pour ce mélange, ou plongée incalculable avec ces paramètres.</p>';
+    return;
+  }
+  const sub = cfg.tbot ? `fond ${cfg.tbot}′${cfg.depth ? ' à ' + cfg.depth + ' m' : ''}` : 'temps au fond maximal';
+  box.innerHTML = `<div class="section-title">${keys.length} comparaison${keys.length > 1 ? 's' : ''} <small>${sub}</small></div>`
+    + '<p class="disclaimer" style="margin:0 20px 8px">Les gaz de déco diffèrent : Bühlmann peut utiliser EAN 50 / EAN 80 et O₂, MN90 seulement l\'O₂ pur (paliers 6 et 3 m, durées ×2/3). « Plus prudent » compare la durée des paliers obligatoires.</p>'
+    + keys.map(k => compareCard(k, pb.find(p => p.def.key === k), pm.find(p => p.def.key === k), cfg)).join('');
+}
+
 // ───────────── État / UI ─────────────
 const state = { mode: 'deep', algo: 'buhlmann', vol: 12, ppo2: 1.4, sac: 20, gas: new Set(['air', 'nitrox', 'o2']), depth: 30, time: 45 };
 
@@ -806,7 +914,7 @@ function load() {
   try {
     const s = JSON.parse(localStorage.getItem('nitroxPlanner') || 'null');
     if (!s) return;
-    if (s.algo === 'buhlmann' || s.algo === 'mn90') state.algo = s.algo;
+    if (['buhlmann', 'mn90', 'compare'].includes(s.algo)) state.algo = s.algo;
     if (s.mode === 'deep' || s.mode === 'shallow') state.mode = s.mode;
     if (s.vol === 12 || s.vol === 15) state.vol = s.vol;
     if ([1.3, 1.4, 1.6].includes(s.ppo2)) state.ppo2 = s.ppo2;
@@ -845,6 +953,7 @@ function render() {
     box.innerHTML = '<p class="empty">Sélectionne au moins un mélange.</p>';
     return;
   }
+  if (cfg.algo === 'compare') { renderCompare(cfg); return; }
   const props = buildProposals(cfg, true);
   if (!props.length) {
     box.innerHTML = '<p class="empty">Aucune proposition : profondeur trop faible pour ce mélange, ou plongée incalculable avec ces paramètres.</p>';
