@@ -114,6 +114,8 @@
   }
   .btn b { display: block; font-size: 0.95rem; color: var(--charcoal); font-weight: 500; }
   .btn i { display: block; font-style: normal; font-family: 'DM Sans', sans-serif; font-size: 0.62rem; font-weight: 300; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn:disabled:hover { border-color: transparent; background: var(--panel); }
   .btn:hover { border-color: var(--sand); background: var(--cream); }
   .btn.active {
     background: var(--charcoal); border-color: var(--charcoal); color: var(--sand);
@@ -190,6 +192,11 @@
   .stops { font-family: 'DM Mono', monospace; font-size: .8rem; line-height: 1.5; }
   .stops em { font-style: normal; color: var(--amber); }
 
+  .verdict { margin-top: 8px; padding: 7px 10px; border-radius: 10px; font-size: .78rem; font-weight: 500; line-height: 1.4; }
+  .v-ok { background: rgba(102,201,141,.14); color: #66c98d; }
+  .v-bad { background: rgba(255,107,94,.14); color: #ff8a7f; }
+  .fix { margin-top: 6px; padding: 7px 10px; border-radius: 10px; background: rgba(240,176,74,.12); font-size: .74rem; color: #f0b04a; line-height: 1.4; }
+  .fix ul { margin: 3px 0 0 16px; }
   .warnings { margin-top: 8px; font-size: .68rem; color: #f0b04a; line-height: 1.4; }
 
   .empty { margin: 0 20px; font-size: .9rem; color: var(--muted); font-style: italic; font-weight: 300; }
@@ -249,8 +256,16 @@
       </div>
       <div class="num">
         <input type="number" id="time" inputmode="numeric" min="5" max="240" placeholder="—">
-        <label>Temps max (min)</label>
+        <label>Temps au fond (min)</label>
       </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Décompression <small>(temps au fond : surface → début de remontée)</small></div>
+    <div class="row c2" data-group="algo">
+      <button class="btn" data-v="buhlmann"><b>Bühlmann</b><i>ZH-L16C, GF 40/85</i></button>
+      <button class="btn" data-v="mn90"><b>Table MN90</b><i>FFESSM 1999, O₂ ×2/3</i></button>
     </div>
   </div>
 
@@ -276,7 +291,7 @@
   <div id="results"></div>
 
   <p class="disclaimer">
-    Outil indicatif : Bühlmann ZH-L16C, GF 40/85, descente 20 m/min, remontée 10 m/min, palier de sécurité 3 min à 3 m,
+    Outil indicatif : Bühlmann ZH-L16C (GF 40/85) ou table MN90 (nitrox par profondeur équivalente air, O₂ pur aux paliers de 6 et 3 m avec durées ×2/3 ; les autres gaz de déco ne sont pas pris en compte en MN90), temps au fond = de la sortie de surface au début de remontée, descente 20 m/min, remontée 10 m/min (15 m/min en MN90), palier de sécurité 3 min à 3 m,
     bloc gonflé à 200 bar avec 50 bar de réserve, SNC limité à 80 % (tables NOAA).
     Gaz de déco : ppO₂ 1,6 max (EAN 50, EAN 80 ≤ 7 L ; O₂ ≤ 4 L). Ne remplace ni les tables MN90,
     ni un ordinateur, ni l'analyse de vos mélanges. Vérifiez toujours le contenu de vos blocs.
@@ -291,6 +306,7 @@ const DESC = 20, ASC = 10;          // m/min
 const FILL = 200, RESERVE = 50;     // bar
 const CNS_MAX = 80;                 // %
 const MAX_DEPTH = 60;
+const MAX_BT = 240;               // temps au fond max exploré (min)
 const PH2O = 0.0627;
 const DECO_MAX_SHALLOW = 5, DECO_MAX_DEEP = 60; // min de palier obligatoire
 
@@ -319,25 +335,28 @@ function mkGas(fo2, cap) {
 const modOf = (fo2, pp) => Math.floor(10 * (pp / fo2 - 1) + 1e-6);
 const gasColor = g => g.fo2 <= 0.215 ? 'var(--g-air)' : g.fo2 < 0.5 ? 'var(--g-nx)' : g.fo2 < 1 ? 'var(--g-rich)' : 'var(--g-o2)';
 
-// ───────────── Moteur de décompression ─────────────
+// ───────────── Moteur de décompression (Bühlmann ZH-L16C) ─────────────
 function newState() {
   return { t: HT.map(() => 0.79 * (1 - PH2O)), cns: 0, use: {}, time: 0, log: [] };
 }
 function clone(s) {
   return { t: s.t.slice(), cns: s.cns, use: Object.assign({}, s.use), time: s.time, log: s.log.slice() };
 }
-function advance(st, d0, d1, dur, gas) {
+// phase : desc | fond | asc | palier
+function advance(st, d0, d1, dur, gas, phase) {
   if (dur <= 0) return;
   const n = Math.max(1, Math.ceil(dur / 0.25)), sub = dur / n;
+  let L = 0;
   for (let i = 0; i < n; i++) {
     const P = 1 + (d0 + (d1 - d0) * (i + 0.5) / n) / 10;
     const pi = (P - PH2O) * (1 - gas.fo2);
     for (let j = 0; j < 16; j++) st.t[j] = pi + (st.t[j] - pi) * Math.exp(-K[j] * sub);
     st.cns += sub / cnsLimit(gas.fo2 * P) * 100;
-    st.use[gas.id] = (st.use[gas.id] || 0) + SAC * P * sub;
+    L += SAC * P * sub;
   }
+  st.use[gas.id] = (st.use[gas.id] || 0) + L;
   st.time += dur;
-  st.log.push({ d0, d1, dur, gas });
+  st.log.push({ d0, d1, dur, gas, phase, L });
 }
 function ceilingM(st, gf) {
   let m = 0;
@@ -362,123 +381,269 @@ function ascend(st, D, gases) {
     const next = d > 3 ? (d % 3 === 0 ? d - 3 : Math.floor(d / 3) * 3) : 0;
     let w = 0;
     while (ceilingM(st, gf(next)) > next + 0.01) {
-      advance(st, d, d, 1, gasAt(d));
+      advance(st, d, d, 1, gasAt(d), 'palier');
       if (++w > 300) return null;
     }
     let total = w;
     if (d === 3 && D >= 10 && w < 3) {           // palier de sécurité
-      advance(st, 3, 3, 3 - w, gasAt(3));
+      advance(st, 3, 3, 3 - w, gasAt(3), 'palier');
       total = 3;
     }
     if (w) deco += w;
     if (total) stops.push({ d, min: total, gas: gasAt(d) });
-    advance(st, d, next, (d - next) / ASC, gasAt(d));
+    advance(st, d, next, (d - next) / ASC, gasAt(d), 'asc');
     d = next;
   }
   return { stops, deco };
 }
 
-// Cherche le meilleur temps de fond à la profondeur D
-function attempt(bottom, gases, D, cfg) {
-  const usable = cfg.vol * (FILL - RESERVE);
-  const st = newState();
-  const tDesc = D / DESC;
-  advance(st, 0, D, tDesc, bottom);
-  let bestAll = null, bestGas = null, limit = null;
-  for (let m = 1; m <= 240; m++) {
-    advance(st, D, D, 1, bottom);
-    const c = clone(st);
-    const r = ascend(c, D, gases);
-    if (!r) break;
-    const decoLimit = cfg.mode === 'shallow' ? DECO_MAX_SHALLOW : DECO_MAX_DEEP;
-    let decoGasOk = true;
-    for (let i = 1; i < gases.length; i++) {
-      const g = gases[i].gas;
-      if ((c.use[g.id] || 0) > g.cap * (FILL - RESERVE)) decoGasOk = false;
-    }
-    const gasOk = (c.use[bottom.id] || 0) <= usable && decoGasOk;
-    const decoOk = r.deco <= decoLimit;
-    const timeOk = c.time <= cfg.tmax + 1e-9;
-    const cnsOk = c.cns <= CNS_MAX;
-    if (!gasOk || !decoOk) {
-      if (!limit) limit = !gasOk ? 'gaz' : 'palier';
-      break;
-    }
-    const sol = { D, bt: tDesc + m, rt: c.time, cns: c.cns, use: c.use, log: c.log, stops: r.stops, deco: r.deco };
-    bestGas = sol;
-    if (timeOk && cnsOk) bestAll = sol;
-    else if (!limit) limit = !timeOk ? 'temps saisi' : 'SNC';
+// Table MN90 (FFESSM CTR Bretagne & Pays de la Loire, version du 03/05/1999, J.-N. Trucco).
+// Ligne : [durée de plongée (min), palier 15 m, 12 m, 9 m, 6 m, 3 m (min), GPS] ; GPS "*" = successive interdite.
+// Remontée 15-17 m/min, changement de palier 1 m/10 s.
+const MN90 = {
+  6: [[15,0,0,0,0,0,"A"],[30,0,0,0,0,0,"B"],[45,0,0,0,0,0,"C"],[75,0,0,0,0,0,"D"],[105,0,0,0,0,0,"E"],[135,0,0,0,0,0,"F"],[180,0,0,0,0,0,"G"],[240,0,0,0,0,0,"H"],[315,0,0,0,0,0,"I"],[360,0,0,0,0,0,"J"]],
+  8: [[15,0,0,0,0,0,"B"],[30,0,0,0,0,0,"C"],[45,0,0,0,0,0,"D"],[60,0,0,0,0,0,"E"],[90,0,0,0,0,0,"F"],[105,0,0,0,0,0,"G"],[135,0,0,0,0,0,"H"],[165,0,0,0,0,0,"I"],[195,0,0,0,0,0,"J"],[255,0,0,0,0,0,"K"],[300,0,0,0,0,0,"L"],[360,0,0,0,0,0,"M"]],
+  10: [[15,0,0,0,0,0,"B"],[30,0,0,0,0,0,"C"],[45,0,0,0,0,0,"D"],[60,0,0,0,0,0,"F"],[75,0,0,0,0,0,"G"],[105,0,0,0,0,0,"H"],[120,0,0,0,0,0,"I"],[135,0,0,0,0,0,"J"],[165,0,0,0,0,0,"K"],[180,0,0,0,0,0,"L"],[240,0,0,0,0,0,"M"],[255,0,0,0,0,0,"N"],[315,0,0,0,0,0,"O"],[330,0,0,0,0,0,"P"],[360,0,0,0,0,1,"P"]],
+  12: [[5,0,0,0,0,0,"A"],[15,0,0,0,0,0,"B"],[25,0,0,0,0,0,"C"],[35,0,0,0,0,0,"D"],[45,0,0,0,0,0,"E"],[55,0,0,0,0,0,"F"],[65,0,0,0,0,0,"G"],[80,0,0,0,0,0,"H"],[90,0,0,0,0,0,"I"],[105,0,0,0,0,0,"J"],[120,0,0,0,0,0,"K"],[135,0,0,0,0,0,"L"],[140,0,0,0,0,2,"L"],[150,0,0,0,0,4,"M"],[160,0,0,0,0,6,"M"],[170,0,0,0,0,7,"N"],[180,0,0,0,0,9,"N"],[190,0,0,0,0,11,"N"],[200,0,0,0,0,13,"O"],[210,0,0,0,0,14,"O"],[220,0,0,0,0,15,"O"],[230,0,0,0,0,16,"O"],[240,0,0,0,0,17,"O"],[250,0,0,0,0,18,"P"],[255,0,0,0,0,19,"P"],[270,0,0,0,0,22,"P"],[285,0,0,0,0,24,"P"],[300,0,0,0,0,26,"P"],[315,0,0,0,0,27,"*"],[330,0,0,0,0,29,"*"],[345,0,0,0,0,31,"*"],[360,0,0,0,0,33,"*"]],
+  15: [[5,0,0,0,0,0,"A"],[10,0,0,0,0,0,"B"],[15,0,0,0,0,0,"C"],[20,0,0,0,0,0,"C"],[25,0,0,0,0,0,"D"],[30,0,0,0,0,0,"E"],[35,0,0,0,0,0,"E"],[40,0,0,0,0,0,"F"],[45,0,0,0,0,0,"G"],[50,0,0,0,0,0,"G"],[55,0,0,0,0,0,"H"],[60,0,0,0,0,0,"H"],[65,0,0,0,0,0,"I"],[70,0,0,0,0,0,"I"],[75,0,0,0,0,0,"J"],[80,0,0,0,0,2,"J"],[85,0,0,0,0,4,"K"],[90,0,0,0,0,6,"K"],[95,0,0,0,0,8,"L"],[100,0,0,0,0,11,"L"],[105,0,0,0,0,13,"L"],[110,0,0,0,0,15,"M"],[115,0,0,0,0,17,"M"],[120,0,0,0,0,18,"M"],[130,0,0,0,0,22,"*"],[140,0,0,0,0,25,"*"]],
+  18: [[5,0,0,0,0,0,"B"],[10,0,0,0,0,0,"B"],[15,0,0,0,0,0,"C"],[20,0,0,0,0,0,"D"],[25,0,0,0,0,0,"E"],[30,0,0,0,0,0,"F"],[35,0,0,0,0,0,"F"],[40,0,0,0,0,0,"G"],[45,0,0,0,0,0,"H"],[50,0,0,0,0,0,"H"],[55,0,0,0,0,1,"I"],[60,0,0,0,0,5,"J"],[65,0,0,0,0,8,"J"],[70,0,0,0,0,11,"K"],[75,0,0,0,0,14,"K"],[80,0,0,0,0,17,"L"],[85,0,0,0,0,21,"L"],[90,0,0,0,0,23,"M"],[95,0,0,0,0,26,"M"],[100,0,0,0,0,28,"M"],[105,0,0,0,0,31,"N"],[110,0,0,0,0,34,"N"],[115,0,0,0,0,36,"N"],[120,0,0,0,0,38,"O"],[130,0,0,0,0,42,"*"],[140,0,0,0,0,46,"*"],[150,0,0,0,0,51,"*"]],
+  20: [[5,0,0,0,0,0,"B"],[10,0,0,0,0,0,"B"],[15,0,0,0,0,0,"D"],[20,0,0,0,0,0,"D"],[25,0,0,0,0,0,"E"],[30,0,0,0,0,0,"F"],[35,0,0,0,0,0,"G"],[40,0,0,0,0,0,"H"],[45,0,0,0,0,1,"I"],[50,0,0,0,0,4,"I"],[55,0,0,0,0,9,"J"],[60,0,0,0,0,13,"K"],[65,0,0,0,0,16,"K"],[70,0,0,0,0,20,"L"],[75,0,0,0,0,24,"L"],[80,0,0,0,0,27,"M"],[85,0,0,0,0,30,"M"],[90,0,0,0,0,34,"M"],[95,0,0,0,0,37,"*"],[100,0,0,0,0,40,"*"],[105,0,0,0,0,43,"*"],[110,0,0,0,0,45,"*"],[115,0,0,0,0,48,"*"],[120,0,0,0,1,49,"*"]],
+  22: [[5,0,0,0,0,0,"B"],[10,0,0,0,0,0,"C"],[15,0,0,0,0,0,"D"],[20,0,0,0,0,0,"E"],[25,0,0,0,0,0,"F"],[30,0,0,0,0,0,"G"],[35,0,0,0,0,0,"H"],[40,0,0,0,0,2,"I"],[45,0,0,0,0,7,"I"],[50,0,0,0,0,12,"J"],[55,0,0,0,0,16,"K"],[60,0,0,0,0,20,"K"],[65,0,0,0,0,25,"L"],[70,0,0,0,0,29,"L"],[75,0,0,0,0,33,"M"],[80,0,0,0,0,37,"M"],[85,0,0,0,0,41,"N"],[90,0,0,0,0,44,"N"],[95,0,0,0,2,46,"*"],[100,0,0,0,4,47,"*"],[105,0,0,0,5,49,"*"],[110,0,0,0,7,51,"*"],[115,0,0,0,9,53,"*"],[120,0,0,0,11,55,"*"]],
+  25: [[5,0,0,0,0,0,"B"],[10,0,0,0,0,0,"C"],[15,0,0,0,0,0,"D"],[20,0,0,0,0,0,"E"],[25,0,0,0,0,1,"F"],[30,0,0,0,0,2,"H"],[35,0,0,0,0,5,"I"],[40,0,0,0,0,10,"J"],[45,0,0,0,0,16,"J"],[50,0,0,0,0,21,"K"],[55,0,0,0,0,27,"L"],[60,0,0,0,0,32,"L"],[65,0,0,0,0,37,"M"],[70,0,0,0,1,41,"M"],[75,0,0,0,4,43,"N"],[80,0,0,0,7,45,"N"],[85,0,0,0,9,48,"O"],[90,0,0,0,11,50,"O"],[95,0,0,0,14,51,"*"],[100,0,0,0,16,54,"*"],[105,0,0,0,19,56,"*"],[110,0,0,0,21,59,"*"],[115,0,0,0,23,61,"*"],[120,0,0,0,24,63,"*"]],
+  28: [[5,0,0,0,0,0,"B"],[10,0,0,0,0,0,"D"],[15,0,0,0,0,0,"E"],[20,0,0,0,0,1,"F"],[25,0,0,0,0,2,"G"],[30,0,0,0,0,6,"H"],[35,0,0,0,0,12,"I"],[40,0,0,0,0,19,"J"],[45,0,0,0,0,25,"K"],[50,0,0,0,0,32,"L"],[55,0,0,0,2,36,"M"],[60,0,0,0,4,40,"M"],[65,0,0,0,8,43,"N"],[70,0,0,0,11,46,"N"],[75,0,0,0,14,48,"O"],[80,0,0,0,17,50,"O"],[85,0,0,0,20,53,"O"],[90,0,0,0,23,56,"P"],[95,0,0,0,26,58,"*"],[100,0,0,0,28,61,"*"],[105,0,0,0,30,64,"*"],[110,0,0,1,32,67,"*"],[115,0,0,2,34,70,"*"],[120,0,0,3,36,73,"*"]],
+  30: [[5,0,0,0,0,0,"B"],[10,0,0,0,0,0,"D"],[15,0,0,0,0,1,"E"],[20,0,0,0,0,2,"F"],[25,0,0,0,0,4,"H"],[30,0,0,0,0,9,"I"],[35,0,0,0,0,17,"J"],[40,0,0,0,0,24,"K"],[45,0,0,0,1,31,"L"],[50,0,0,0,3,36,"M"],[55,0,0,0,6,39,"M"],[60,0,0,0,10,43,"N"],[65,0,0,0,14,46,"N"],[70,0,0,0,17,48,"O"],[75,0,0,0,20,50,"*"],[80,0,0,0,24,54,"*"],[85,0,0,0,27,57,"*"],[90,0,0,0,30,60,"*"]],
+  32: [[5,0,0,0,0,0,"B"],[10,0,0,0,0,0,"D"],[15,0,0,0,0,1,"E"],[20,0,0,0,0,3,"G"],[25,0,0,0,0,6,"H"],[30,0,0,0,0,14,"I"],[35,0,0,0,0,22,"K"],[40,0,0,0,1,29,"K"],[45,0,0,0,4,34,"L"],[50,0,0,0,7,39,"M"],[55,0,0,0,11,43,"N"],[60,0,0,0,15,46,"N"],[65,0,0,0,19,48,"O"],[70,0,0,0,23,50,"O"],[75,0,0,0,27,54,"*"],[80,0,0,2,29,58,"*"],[85,0,0,4,30,61,"*"],[90,0,0,6,32,64,"*"]],
+  35: [[5,0,0,0,0,0,"C"],[10,0,0,0,0,0,"D"],[15,0,0,0,0,2,"F"],[20,0,0,0,0,5,"H"],[25,0,0,0,0,11,"I"],[30,0,0,0,1,20,"J"],[35,0,0,0,2,27,"K"],[40,0,0,0,5,34,"L"],[45,0,0,0,9,39,"M"],[50,0,0,0,14,43,"N"],[55,0,0,0,18,47,"N"],[60,0,0,0,22,50,"O"],[65,0,0,2,26,52,"*"],[70,0,0,4,28,57,"*"],[75,0,0,7,30,60,"*"],[80,0,0,10,31,64,"*"],[85,0,0,12,33,69,"*"],[90,0,0,14,36,72,"*"]],
+  38: [[5,0,0,0,0,0,"C"],[10,0,0,0,0,1,"E"],[15,0,0,0,0,4,"F"],[20,0,0,0,0,8,"H"],[25,0,0,0,1,16,"J"],[30,0,0,0,3,24,"K"],[35,0,0,0,5,33,"L"],[40,0,0,0,10,38,"M"],[45,0,0,0,15,43,"N"],[50,0,0,0,20,47,"N"],[55,0,0,2,23,50,"O"],[60,0,0,5,27,53,"P"],[65,0,0,8,29,58,"*"],[70,0,0,11,31,62,"*"],[75,0,0,14,33,66,"*"],[80,0,0,17,35,71,"*"],[85,0,0,20,36,76,"*"],[90,0,0,23,38,81,"*"]],
+  40: [[5,0,0,0,0,0,"C"],[10,0,0,0,0,2,"E"],[15,0,0,0,0,4,"G"],[20,0,0,0,1,9,"H"],[25,0,0,0,2,19,"J"],[30,0,0,0,4,28,"K"],[35,0,0,0,8,35,"L"],[40,0,0,0,13,40,"M"],[45,0,0,1,18,45,"N"],[50,0,0,2,23,48,"O"],[55,0,0,5,26,52,"O"],[60,0,0,8,29,57,"P"],[65,0,0,12,31,61,"*"],[70,0,0,15,33,66,"*"],[75,0,0,18,35,71,"*"],[80,0,1,21,37,75,"*"],[85,0,3,23,38,82,"*"],[90,0,5,24,39,88,"*"]],
+  42: [[5,0,0,0,0,0,"C"],[10,0,0,0,0,2,"E"],[15,0,0,0,0,5,"G"],[20,0,0,0,1,12,"I"],[25,0,0,0,3,22,"J"],[30,0,0,0,6,31,"L"],[35,0,0,0,11,37,"M"],[40,0,0,1,16,43,"N"],[45,0,0,3,21,47,"*"],[50,0,0,6,24,50,"*"],[55,0,0,8,29,55,"*"],[60,0,0,13,30,60,"*"]],
+  45: [[5,0,0,0,0,0,"C"],[10,0,0,0,0,3,"F"],[15,0,0,0,1,6,"H"],[20,0,0,0,3,15,"I"],[25,0,0,0,5,25,"K"],[30,0,0,0,9,35,"L"],[35,0,0,1,15,40,"M"],[40,0,0,3,20,46,"N"],[45,0,0,6,24,50,"*"],[50,0,0,10,28,54,"*"],[55,0,0,14,30,60,"*"],[60,0,1,18,32,65,"*"]],
+  48: [[5,0,0,0,0,0,"D"],[10,0,0,0,0,4,"F"],[15,0,0,0,2,7,"H"],[20,0,0,0,4,19,"J"],[25,0,0,0,7,30,"K"],[30,0,0,1,12,37,"M"],[35,0,0,3,18,44,"N"],[40,0,0,6,23,48,"O"],[45,0,0,10,27,53,"*"],[50,0,1,14,30,59,"*"],[55,0,2,18,32,64,"*"],[60,0,5,19,36,70,"*"]],
+  50: [[5,0,0,0,0,1,"D"],[10,0,0,0,0,4,"F"],[15,0,0,0,2,9,"H"],[20,0,0,0,4,22,"J"],[25,0,0,1,8,32,"L"],[30,0,0,2,14,39,"M"],[35,0,0,5,20,45,"N"],[40,0,0,9,24,50,"O"],[45,0,1,12,29,55,"*"],[50,0,2,17,30,62,"*"],[55,0,5,19,34,67,"*"],[60,0,8,21,37,74,"*"]],
+  52: [[5,0,0,0,0,1,"D"],[10,0,0,0,1,4,"F"],[15,0,0,0,3,10,"I"],[20,0,0,1,5,23,"K"],[25,0,0,2,9,34,"L"],[30,0,0,4,15,41,"M"],[35,0,0,6,22,47,"O"],[40,0,1,10,26,52,"O"],[45,0,2,15,29,59,"*"],[50,0,5,17,32,64,"*"],[55,0,8,19,36,71,"*"],[60,0,11,22,38,78,"*"]],
+  55: [[5,0,0,0,0,1,"D"],[10,0,0,0,1,5,"G"],[15,0,0,0,4,13,"I"],[20,0,0,1,6,27,"K"],[25,0,0,3,11,37,"M"],[30,0,0,6,18,44,"N"],[35,0,1,9,23,50,"O"],[40,0,3,12,29,55,"P"],[45,0,5,17,31,62,"*"],[50,0,8,19,35,69,"*"],[55,0,12,22,37,76,"*"],[60,2,14,24,39,86,"*"]],
+  58: [[5,0,0,0,0,2,"D"],[10,0,0,0,2,5,"G"],[15,0,0,1,4,16,"J"],[20,0,0,2,7,30,"K"],[25,0,0,4,13,40,"M"],[30,0,1,7,21,46,"N"],[35,0,2,11,26,52,"O"],[40,0,5,15,30,59,"P"],[45,0,8,18,33,66,"*"],[50,1,11,21,37,74,"*"],[55,3,14,23,39,83,"*"],[60,5,16,25,42,92,"*"]],
+  60: [[5,0,0,0,0,2,"D"],[10,0,0,0,2,6,"G"],[15,0,0,1,4,19,"J"],[20,0,0,3,8,32,"L"],[25,0,0,5,15,41,"M"],[30,0,1,8,22,48,"O"],[35,0,4,11,28,54,"P"],[40,0,6,17,30,62,"P"],[45,1,9,19,35,69,"*"],[50,2,13,22,37,78,"*"],[55,5,15,24,40,88,"*"],[60,7,17,26,44,96,"*"]],
+  62: [[5,0,0,0,0,2,"*"],[10,0,0,0,2,7,"*"],[15,0,0,1,5,21,"*"]],
+  65: [[5,0,0,0,0,3,"*"],[10,0,0,0,3,8,"*"],[15,0,0,2,5,24,"*"]]
+};
+
+const MN_DEPTHS = Object.keys(MN90).map(Number).sort((a, b) => a - b);
+// Lecture de la table : profondeur équivalente air (mélanges), durée arrondie au-dessus
+function mnRow(D, fo2, bt) {
+  let deq = D;
+  if (fo2 > 0.215) deq = ((D / 10 + 1) * (1 - fo2) / 0.8 - 1) * 10;   // Pabs éq = Pabs × %N2 / 0,8
+  const dt = MN_DEPTHS.find(x => x >= deq - 1e-9);
+  if (!dt) return { err: true, max: null };
+  const rows = MN90[dt];
+  const row = rows.find(r => r[0] >= bt - 1e-9);
+  if (!row) return { err: true, dt, max: rows[rows.length - 1][0] };
+  return { dt, row };
+}
+// Remontée MN90 : paliers de la table, O₂ pur aux paliers de 6 et 3 m (durée ×2/3 si total ≥ 5 min)
+function ascendMN90(st, D, gases, row) {
+  const gasAt = d => {
+    let g = gases[0];
+    for (const x of gases) if (x.maxD >= d && x.gas.fo2 > g.gas.fo2) g = x;
+    return g.gas;
+  };
+  const tbl = { 15: row[1], 12: row[2], 9: row[3], 6: row[4], 3: row[5] };
+  let eff = tbl, o2red = false;
+  if (gases.some(x => x.gas.fo2 === 1)) {
+    const red = Object.assign({}, tbl);
+    for (const k of [6, 3]) if (tbl[k]) red[k] = Math.ceil(tbl[k] * 2 / 3 - 1e-9);
+    if (Object.values(red).reduce((a, b) => a + b, 0) >= 5) { eff = red; o2red = red[6] !== tbl[6] || red[3] !== tbl[3]; }
   }
-  if (!bestAll) return null;
-  bestAll.limit = limit || 'durée max';
-  bestAll.gasMaxRt = bestGas.rt;
-  bestAll.gasMaxBt = bestGas.bt;
-  return bestAll;
+  const deco = Object.values(eff).reduce((a, b) => a + b, 0);
+  const plan = [];
+  for (const k of [15, 12, 9, 6, 3]) {
+    let m = eff[k];
+    if (k === 3 && D >= 10 && m < 3) m = 3;                  // palier de sécurité
+    if (m > 0 && k < D) plan.push([k, m]);
+  }
+  const stops = [];
+  let d = D, first = true;
+  for (const [k, m] of plan) {
+    advance(st, d, k, (d - k) / (first ? 15 : 6), gasAt(d), 'asc');
+    d = k; first = false;
+    advance(st, d, d, m, gasAt(d), 'palier');
+    stops.push({ d, min: m, gas: gasAt(d) });
+  }
+  advance(st, d, 0, d / 15, gasAt(d), 'asc');
+  return { stops, deco, o2red };
 }
 
-function plan(bottom, decoGases, D0, cfg) {
-  const gases = [{ gas: bottom, maxD: Infinity }].concat(
-    decoGases.filter(g => g.fo2 > bottom.fo2 + 0.005)
-             .map(g => ({ gas: g, maxD: Math.floor(modOf(g.fo2, 1.6) / 3) * 3 })));
-  for (let D = D0; D >= 6; D = (D === D0 ? Math.floor((D0 - 1) / 3) * 3 : D - 3)) {
-    const sol = attempt(bottom, gases, D, cfg);
-    if (sol) { sol.gases = gases; sol.bottom = bottom; sol.D0 = D0; return sol; }
+// Vérifie les contraintes (gaz, déco, SNC) d'un profil simulé
+function assess(c, r, bottom, gases, cfg) {
+  const usable = cfg.vol * (FILL - RESERVE);
+  const needB = c.use[bottom.id] || 0;
+  const decoIssues = [];
+  for (let i = 1; i < gases.length; i++) {
+    const g = gases[i].gas, L = c.use[g.id] || 0, capL = g.cap * (FILL - RESERVE);
+    if (L > capL) decoIssues.push({ gas: g, L, capL });
   }
-  return null;
+  const decoLimit = cfg.mode === 'shallow' ? DECO_MAX_SHALLOW : DECO_MAX_DEEP;
+  const flags = { gas: needB <= usable, decoGas: !decoIssues.length, deco: r.deco <= decoLimit, cns: c.cns <= CNS_MAX };
+  return { usable, needB, decoIssues, decoLimit, flags, ok: flags.gas && flags.decoGas && flags.deco && flags.cns };
+}
+const FAIL_TXT = { gas: 'gaz du bloc', decoGas: 'gaz de déco', deco: 'durée des paliers', cns: 'SNC', max: 'durée max (4 h)', table: 'limite de la table MN90' };
+const firstFail = fl => ['gas', 'decoGas', 'deco', 'cns'].find(k => !fl[k]) || null;
+
+// Profil complet pour un temps au fond donné (surface → début de remontée)
+function simulate(bottom, gases, D, bt, cfg) {
+  const tDesc = D / DESC;
+  if (bt < tDesc - 1e-9) return { err: 'desc', D, bt };
+  const mn = cfg.algo === 'mn90' ? mnRow(D, bottom.fo2, bt) : null;
+  if (mn && mn.err) return { err: 'table', D, bt, dt: mn.dt, max: mn.max };
+  const st = newState();
+  advance(st, 0, D, tDesc, bottom, 'desc');
+  advance(st, D, D, bt - tDesc, bottom, 'fond');
+  const r = mn ? ascendMN90(st, D, gases, mn.row) : ascend(st, D, gases);
+  if (!r) return { err: 'deco', D, bt };
+  return Object.assign({ D, bt, rt: st.time, cns: st.cns, use: st.use, log: st.log, stops: r.stops, deco: r.deco,
+    mn: mn ? { dt: mn.dt, t: mn.row[0], gps: mn.row[6], o2red: r.o2red } : null },
+    assess(st, r, bottom, gases, cfg));
+}
+
+// Plus grand temps au fond (minutes entières) respectant toutes les contraintes
+function scanMax(bottom, gases, D, cfg) {
+  const tDesc = D / DESC, bt0 = Math.ceil(tDesc - 1e-9);
+  if (cfg.algo === 'mn90') {
+    let best = null, limit = 'max';
+    for (let bt = bt0; bt <= MAX_BT; bt++) {
+      const s = simulate(bottom, gases, D, bt, cfg);
+      if (s.err) { limit = s.err === 'table' ? 'table' : 'deco'; break; }
+      if (!s.ok) { limit = firstFail(s.flags); break; }
+      best = bt;
+    }
+    return { bt: best, limit };
+  }
+  const st = newState();
+  advance(st, 0, D, tDesc, bottom, 'desc');
+  advance(st, D, D, bt0 - tDesc, bottom, 'fond');
+  let best = null, limit = 'max';
+  for (let bt = bt0; bt <= MAX_BT; bt++) {
+    if (bt > bt0) advance(st, D, D, 1, bottom, 'fond');
+    const c = clone(st), r = ascend(c, D, gases);
+    if (!r) { limit = 'deco'; break; }
+    const a = assess(c, r, bottom, gases, cfg);
+    if (!a.ok) { limit = firstFail(a.flags); break; }
+    best = bt;
+  }
+  return { bt: best, limit };
 }
 
 // ───────────── Propositions ─────────────
-function buildProposals(cfg) {
-  const hasAir = cfg.gas.has('air'), hasNx = cfg.gas.has('nitrox'), hasO2 = cfg.gas.has('o2');
-  const req = cfg.depth || 40;
-  const wanted = Math.min(MAX_DEPTH, req);
-  const air = mkGas(0.21, 0);
-  const o2 = mkGas(1.0, 4);
-  const ean50 = mkGas(0.5, 7);
-  const ean80 = mkGas(0.8, 7);
-
+function makeDefs(cfg) {
+  const has = k => cfg.gas.has(k);
+  const wanted = Math.min(MAX_DEPTH, cfg.depth || 40);
+  const air = mkGas(0.21, 0), o2 = mkGas(1.0, 4), ean50 = mkGas(0.5, 7), ean80 = mkGas(0.8, 7);
   const bestMix = () => {
     let fo2 = Math.floor(cfg.ppo2 / (wanted / 10 + 1) * 100) / 100;
-    fo2 = Math.min(0.40, Math.max(0.21, fo2));
-    return mkGas(fo2, 0);
+    return mkGas(Math.min(0.40, Math.max(0.21, fo2)), 0);
   };
-  const cap = (g) => Math.min(wanted, MAX_DEPTH, modOf(g.fo2, cfg.ppo2));
-
   const defs = [];
-  if (hasAir) defs.push({ key: 'air', title: 'Air', bottom: air, deco: [], dupOf: null });
-  if (hasNx) { const nx = bestMix(); defs.push({ key: 'nx', title: 'Nitrox fond', bottom: nx, deco: [], dupOf: null }); }
-  if (hasAir && (hasNx || hasO2)) {
-    defs.push({ key: 'airdeco', title: 'Air + déco nitrox', bottom: air,
-      deco: [].concat(hasNx ? [ean50] : [], hasO2 ? [o2] : []), dupOf: 'air' });
+  if (has('air')) defs.push({ key: 'air', title: 'Air', bottom: air, deco: [], dupOf: null });
+  const nxIsAir = bestMix().fo2 <= 0.215 && has('air');   // trop profond pour un vrai nitrox : même profil que l'air
+  if (has('nitrox') && !nxIsAir) defs.push({ key: 'nx', title: 'Nitrox fond', bottom: bestMix(), deco: [], dupOf: null });
+  const mn = cfg.algo === 'mn90';     // MN90 : seul l'O₂ pur (paliers 6 et 3 m) est prévu en déco
+  if (has('air') && (mn ? has('o2') : (has('nitrox') || has('o2'))))
+    defs.push({ key: 'airdeco', title: mn ? 'Air + déco O₂' : 'Air + déco nitrox', bottom: air,
+      deco: mn ? [o2] : [].concat(has('nitrox') ? [ean50] : [], has('o2') ? [o2] : []), dupOf: 'air' });
+  if (has('nitrox') && !nxIsAir && (!mn || has('o2')))
+    defs.push({ key: 'nxdeco', title: mn ? 'Nitrox + déco O₂' : 'Nitrox + déco riche', bottom: bestMix(),
+      deco: mn ? [o2] : [].concat([ean80], has('o2') ? [o2] : []), dupOf: 'nx' });
+  for (const d of defs) {
+    d.D0 = Math.floor(Math.min(wanted, modOf(d.bottom.fo2, cfg.ppo2)));
+    d.gases = [{ gas: d.bottom, maxD: Infinity }].concat(
+      d.deco.filter(g => g.fo2 > d.bottom.fo2 + 0.005)
+            .map(g => ({ gas: g, maxD: Math.floor(modOf(g.fo2, 1.6) / 3) * 3 })));
   }
-  if (hasNx) {
-    const nx = bestMix();
-    defs.push({ key: 'nxdeco', title: 'Nitrox + déco riche', bottom: nx,
-      deco: [].concat([ean80], hasO2 ? [o2] : []), dupOf: 'nx' });
-  }
+  return defs.filter(d => d.D0 >= 6);
+}
+const usesDeco = s => s.gases.slice(1).some(x => (s.use[x.gas.id] || 0) > 0);
 
-  const out = [];
-  const done = {};
-  for (const def of defs) {
-    const D0 = Math.floor(cap(def.bottom));
-    if (D0 < 6) continue;
-    const sol = plan(def.bottom, def.deco, D0, cfg);
-    if (!sol) continue;
-    done[def.key] = sol;
-    if (def.dupOf) {
-      const usedDeco = sol.gases.slice(1).some(x => (sol.use[x.gas.id] || 0) > 0);
-      if (!usedDeco) continue;
+function evalDef(def, cfg, withScan) {
+  let sol, scan = null;
+  if (cfg.tbot) {
+    sol = simulate(def.bottom, def.gases, def.D0, cfg.tbot, cfg);
+    if (withScan) scan = scanMax(def.bottom, def.gases, def.D0, cfg);
+  } else {                                       // temps libre : on maximise
+    for (let D = def.D0; D >= 6; D = (D === def.D0 ? Math.floor((def.D0 - 1) / 3) * 3 : D - 3)) {
+      scan = scanMax(def.bottom, def.gases, D, cfg);
+      if (scan.bt != null) { sol = simulate(def.bottom, def.gases, D, scan.bt, cfg); break; }
     }
-    sol.def = def;
+    if (!sol) return null;
+  }
+  sol.def = def; sol.bottom = def.bottom; sol.gases = def.gases; sol.scan = scan;
+  sol.depthOk = !cfg.depth || sol.D >= cfg.depth;
+  sol.feasible = !sol.err && sol.ok && sol.depthOk;
+  return sol;
+}
+
+function buildProposals(cfg, withScan) {
+  const out = [];
+  for (const def of makeDefs(cfg)) {
+    const sol = evalDef(def, cfg, withScan);
+    if (!sol) continue;
+    if (def.dupOf && (sol.err || !usesDeco(sol))) continue;   // gaz de déco inutile : même profil
     out.push(sol);
   }
-  out.sort((a, b) => b.bt - a.bt || a.cns - b.cns);
+  if (cfg.tbot) out.sort((a, b) => (b.feasible - a.feasible) || ((b.usable - b.needB) - (a.usable - a.needB)) || 0);
+  else out.sort((a, b) => b.bt - a.bt || a.cns - b.cns);
   return out;
+}
+
+// ───────────── Aide : que modifier pour réussir ? ─────────────
+function withSac(sac, fn) { const old = SAC; SAC = sac; try { return fn(); } finally { SAC = old; } }
+function feasibleKeys(cfg) {
+  return withSac(cfg.sac, () => {
+    const ks = {};
+    for (const def of makeDefs(cfg)) {
+      const s = evalDef(def, cfg, false);
+      if (!s || s.err || !s.feasible) continue;
+      if (def.dupOf && !usesDeco(s)) continue;
+      ks[def.key] = def.title;
+    }
+    return ks;
+  });
+}
+function suggestions(sol, cfg) {
+  const out = [];
+  const key = sol.def.key;
+  if (sol.err === 'desc') return [`Temps au fond ≥ ${Math.ceil(sol.D / DESC)} min (temps de descente)`];
+  if (sol.scan && sol.scan.bt != null && sol.scan.bt < cfg.tbot && !sol.ok)
+    out.push(`Temps au fond ≤ ${sol.scan.bt} min`);
+  if (!sol.ok) {
+    for (let D = sol.D - 1; D >= 6; D--) {
+      const s = simulate(sol.bottom, sol.gases, D, cfg.tbot, cfg);
+      if (!s.err && s.ok) { out.push(`Profondeur ≤ ${D} m`); break; }
+    }
+  }
+  const cur = feasibleKeys(cfg);
+  const tries = [];
+  if (cfg.vol < 15) tries.push({ label: 'Bloc de 15 L', c: { vol: 15 } });
+  for (const s of [19, 18, 17]) if (s < cfg.sac) tries.push({ label: `Conso ≤ ${s} L/min`, c: { sac: s } });
+  for (const p of [1.4, 1.6]) if (p > cfg.ppo2) tries.push({ label: `Ppo2 ${String(p).replace('.', ',')}`, c: { ppo2: p } });
+  if (cfg.mode === 'shallow') tries.push({ label: 'Type : plongée profonde', c: { mode: 'deep' } });
+  if (!cfg.gas.has('nitrox')) tries.push({ label: 'Ajouter du Nitrox', add: true, c: { gas: new Set([...cfg.gas, 'nitrox']) } });
+  if (!cfg.gas.has('o2')) tries.push({ label: 'Ajouter un poney O₂', add: true, c: { gas: new Set([...cfg.gas, 'o2']) } });
+  for (const t of tries) {
+    const c2 = Object.assign({}, cfg, t.c);
+    const ks = feasibleKeys(c2);
+    if (!cur[key] && ks[key]) out.push(t.label);
+    else if (t.add) {
+      const nk = Object.keys(ks).filter(k => !cur[k] && k !== key);
+      if (nk.length) out.push(`${t.label} (profil « ${ks[nk[0]]} »)`);
+    }
+  }
+  return out.slice(0, 6);
 }
 
 // ───────────── Rendu ─────────────
 const $ = id => document.getElementById(id);
 const r0 = x => Math.round(x);
+const fmt = x => Math.round(x).toLocaleString('fr-FR');
 
 function chartSvg(sol) {
   const W = 320, H = 128, pl = 28, pr = 8, pt = 10, pb = 16;
@@ -492,11 +657,10 @@ function chartSvg(sol) {
     pts.push(`${x(t1).toFixed(1)},${y(s.d1).toFixed(1)}`);
     t = t1;
   }
-  const poly = pts.join(' ');
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Profil de plongée">
     <line x1="${pl}" y1="${y(0)}" x2="${W - pr}" y2="${y(0)}" stroke="#5a524a" stroke-width="1"/>
     <line x1="${pl}" y1="${y(Dm)}" x2="${W - pr}" y2="${y(Dm)}" stroke="#5a524a" stroke-width="1" stroke-dasharray="3 3"/>
-    <polygon points="${poly}" fill="rgba(212,196,168,.10)"/>
+    <polygon points="${pts.join(' ')}" fill="rgba(212,196,168,.10)"/>
     ${lines}
     <text x="${pl - 4}" y="${y(0) + 3}" text-anchor="end">0</text>
     <text x="${pl - 4}" y="${y(Dm) + 3}" text-anchor="end">${Dm}m</text>
@@ -505,56 +669,97 @@ function chartSvg(sol) {
   </svg>`;
 }
 
+function reasons(sol, cfg) {
+  const r = [];
+  if (sol.err === 'desc') return [`temps au fond inférieur à la descente (${Math.ceil(sol.D / DESC)} min)`];
+  if (sol.err === 'deco') return ['paliers supérieurs à 5 h'];
+  if (sol.err === 'table') return [sol.max ? `hors table MN90 : ${sol.max} min maximum à ${sol.dt} m (profondeur équivalente)` : 'hors table MN90 : profondeur équivalente > 65 m'];
+  if (!sol.flags.gas) r.push(`gaz du bloc insuffisant : il manque ${fmt(sol.needB - sol.usable)} L`);
+  if (!sol.flags.decoGas) r.push(sol.decoIssues.map(i => `${i.gas.name} : ${fmt(i.L)} L > ${fmt(i.capL)} L (poney ${i.gas.cap} L max)`).join(' ; '));
+  if (!sol.flags.deco) r.push(`paliers de ${sol.deco} min > ${sol.decoLimit} min autorisées en plongée ${cfg.mode === 'shallow' ? 'peu profonde' : 'profonde'}`);
+  if (!sol.flags.cns) r.push(`SNC ${r0(sol.cns)} % > ${CNS_MAX} %`);
+  if (!sol.depthOk) r.push(`profondeur limitée à ${sol.D} m par le mélange (Ppo2 ${String(cfg.ppo2).replace('.', ',')})`);
+  return r;
+}
+
+function usageBreakdown(sol) {
+  const m = {};
+  for (const e of sol.log) {
+    const o = m[e.gas.id] || (m[e.gas.id] = { gas: e.gas, desc: 0, fond: 0, asc: 0, palier: 0, tot: 0 });
+    o[e.phase] += e.L; o.tot += e.L;
+  }
+  return Object.values(m);
+}
+
 function card(sol, cfg, idx) {
-  const g0 = sol.bottom;
-  const used0 = sol.use[g0.id] || 0;
-  const barLeft = Math.max(0, FILL - used0 / cfg.vol);
+  const def = sol.def, g0 = sol.bottom;
+  const head = (badge) => `<div class="prop-head">
+      <div><div class="prop-title">${def.title}</div><div class="prop-sub">${
+        def.gases.length > 1 ? `Fond ${g0.name} · déco ${def.gases.slice(1).map(x => x.gas.name).join(' / ')}` : `Fond et paliers ${g0.name}`}</div></div>
+      ${badge ? `<span class="badge">${badge}</span>` : ''}
+    </div>`;
+
+  const verdictOk = sol.feasible;
+  const rs = verdictOk ? [] : reasons(sol, cfg);
+  const verdict = `<div class="verdict ${verdictOk ? 'v-ok' : 'v-bad'}">${
+    verdictOk ? '✓ Plongée réalisable' : '✗ Non réalisable : ' + rs.join(' ; ')}</div>`;
+  let fix = '';
+  if (!verdictOk && cfg.tbot) {
+    const sg = suggestions(sol, cfg);
+    fix = `<div class="fix"><b>Pour y arriver, modifier :</b><ul>${
+      sg.length ? sg.map(s => `<li>${s}</li>`).join('') : '<li>Aucun réglage seul ne suffit : combine plusieurs changements (bloc plus gros, temps ou profondeur réduits).</li>'
+    }</ul></div>`;
+  }
+  if (sol.err) return `<div class="prop">${head(idx === 0 && cfg.tbot ? '' : '')}${verdict}${fix}</div>`;
+
+  const usedDeco = sol.gases.slice(1).filter(x => (sol.use[x.gas.id] || 0) > 0);
   const mod0 = modOf(g0.fo2, cfg.ppo2);
-  const decoG = sol.gases.slice(1);
-  const usedDeco = decoG.filter(x => (sol.use[x.gas.id] || 0) > 0);
-
-  const depthOk = !cfg.depth || sol.D >= cfg.depth;
-  const depthDet = cfg.depth
-    ? (depthOk ? 'objectif atteint' : `demandé ${cfg.depth} m`)
-    : 'profondeur libre';
-
-  const cnsCls = sol.cns < 50 ? 'ok' : 'warn';
-  const barCls = barLeft >= 70 ? 'ok' : 'warn';
+  const barLeft = FILL - sol.needB / cfg.vol;
+  const depthDet = cfg.depth ? (sol.depthOk ? 'objectif atteint' : `demandé ${cfg.depth} m`) : 'profondeur libre';
 
   const stopsHtml = sol.stops.length
     ? sol.stops.map(s => `<em>${s.d} m</em> ${s.min}′${s.gas.fo2 > g0.fo2 + 0.005 ? ` <span style="color:${gasColor(s.gas)}">(${s.gas.name})</span>` : ''}`).join(' · ')
     : 'aucun';
 
-  const gasList = [g0].concat(usedDeco.map(x => x.gas));
-  const legend = gasList.map(g => `<span style="--c:${gasColor(g)}">${g.name}</span>`).join('');
+  const legend = [g0].concat(usedDeco.map(x => x.gas)).map(g => `<span style="--c:${gasColor(g)}">${g.name}</span>`).join('');
 
-  const decoGasHtml = usedDeco.map(x => {
-    const L = sol.use[x.gas.id];
-    const need = Math.ceil(L / (FILL - RESERVE) * 2) / 2;
-    return `${x.gas.name} : ${r0(L)} L, poney ≥ ${need} L · plancher ${x.maxD} m`;
-  }).join('<br>');
+  const bd = usageBreakdown(sol);
+  const b0 = bd.find(o => o.gas.id === g0.id) || { desc: 0, fond: 0, asc: 0, palier: 0, tot: 0 };
+  const gasLines = [`${g0.name} : descente ${fmt(b0.desc)} · fond ${fmt(b0.fond)} · remontée ${fmt(b0.asc)} · paliers ${fmt(b0.palier)}`]
+    .concat(bd.filter(o => o.gas.id !== g0.id).map(o => {
+      const bad = sol.decoIssues.some(i => i.gas.id === o.gas.id);
+      const need = Math.ceil(o.tot / (FILL - RESERVE) * 2) / 2;
+      return `<span class="${bad ? 'bad' : ''}">${o.gas.name} : ${fmt(o.tot)} L (poney ≥ ${need} L)</span>`;
+    }));
+  const perMin = SAC * (sol.D / 10 + 1);
+
+  const btOk = !cfg.tbot || sol.ok;
+  const btDet = !cfg.tbot ? 'maximum possible'
+    : sol.ok ? 'objectif atteint'
+    : `visé ${cfg.tbot}′${sol.scan && sol.scan.bt != null ? ` · max ${sol.scan.bt}′` : ''}`;
 
   const warns = [];
   if (g0.fo2 <= 0.215 && sol.D > 40) warns.push('Air au-delà de 40 m : forte narcose (PpN₂ élevée).');
   if (cfg.ppo2 >= 1.6) warns.push('PpO₂ 1,6 au fond : marge très réduite, réservé aux paliers.');
   if (sol.cns >= 50) warns.push('SNC élevé : prévoir un intervalle de surface long.');
 
-  const title = sol.def.title;
-  const sub = usedDeco.length
-    ? `Fond ${g0.name} · déco ${usedDeco.map(x => x.gas.name).join(' / ')}`
-    : `Fond et paliers ${g0.name}`;
+  const maxTile = cfg.tbot && sol.scan
+    ? `<div class="tile"><div class="lbl">Fond max possible</div>
+        <div class="val">${sol.scan.bt == null ? '—' : sol.scan.bt}<small> min</small></div>
+        <div class="det">limité par ${FAIL_TXT[sol.scan.limit]}</div></div>`
+    : `<div class="tile"><div class="lbl">Conso au fond</div>
+        <div class="val">${r0(perMin)}<small> L/min</small></div>
+        <div class="det">${SAC} L/min × ${(sol.D / 10 + 1).toFixed(1).replace('.', ',')} bar</div></div>`;
 
   return `<div class="prop">
-    <div class="prop-head">
-      <div><div class="prop-title">${title}</div><div class="prop-sub">${sub}</div></div>
-      ${idx === 0 ? '<span class="badge">Plus long</span>' : ''}
-    </div>
+    ${head(!cfg.tbot && idx === 0 ? 'Plus long' : (cfg.tbot && verdictOk ? 'Possible' : ''))}
+    ${verdict}${fix}
     ${chartSvg(sol)}
     <div class="legend">${legend}</div>
     <div class="tiles">
       <div class="tile">
         <div class="lbl">Profondeur max</div>
-        <div class="val ${depthOk ? 'ok' : 'bad'}">${sol.D}<small> m</small></div>
+        <div class="val ${sol.depthOk ? 'ok' : 'bad'}">${sol.D}<small> m</small></div>
         <div class="det">${depthDet}</div>
       </div>
       <div class="tile">
@@ -563,29 +768,31 @@ function card(sol, cfg, idx) {
         <div class="det">${g0.name} à ppO₂ ${String(cfg.ppo2).replace('.', ',')}</div>
       </div>
       <div class="tile">
-        <div class="lbl">Temps de plongée</div>
-        <div class="val">${r0(sol.rt)}<small> min</small></div>
-        <div class="det">dont fond ${r0(sol.bt)}′ · limité par ${sol.limit}</div>
+        <div class="lbl">Temps au fond</div>
+        <div class="val ${btOk ? 'ok' : 'bad'}">${r0(sol.bt)}<small> min</small></div>
+        <div class="det">${btDet}</div>
       </div>
+      ${maxTile}
       <div class="tile">
-        <div class="lbl">Temps max (bloc)</div>
-        <div class="val">${r0(sol.gasMaxRt)}<small> min</small></div>
-        <div class="det">${cfg.vol} L · ${SAC} L/min · fond ${r0(sol.gasMaxBt)}′</div>
+        <div class="lbl">Durée totale</div>
+        <div class="val">${r0(sol.rt)}<small> min</small></div>
+        <div class="det">remontée et paliers inclus</div>
       </div>
       <div class="tile">
         <div class="lbl">SNC</div>
-        <div class="val ${cnsCls}">${sol.cns < 1 ? '<1' : r0(sol.cns)}<small> %</small></div>
+        <div class="val ${sol.cns < 50 ? 'ok' : sol.cns <= CNS_MAX ? 'warn' : 'bad'}">${sol.cns < 1 ? '<1' : r0(sol.cns)}<small> %</small></div>
         <div class="det">limite ${CNS_MAX} %</div>
       </div>
-      <div class="tile">
-        <div class="lbl">Bloc au retour</div>
-        <div class="val ${barCls}">${r0(barLeft)}<small> bar</small></div>
-        <div class="det">départ ${FILL} bar</div>
+      <div class="tile wide">
+        <div class="lbl">Gaz nécessaire · bloc ${cfg.vol} L</div>
+        <div class="val ${sol.flags.gas ? 'ok' : 'bad'}">${fmt(sol.needB)}<small> L requis / ${fmt(sol.usable)} L dispo</small></div>
+        <div class="det">${gasLines.join('<br>')}</div>
+        <div class="det" style="margin-top:3px">${barLeft >= 0 ? `Reste ${r0(barLeft)} bar (réserve ${RESERVE} bar = ${fmt(cfg.vol * RESERVE)} L)` : `Il manque ${r0(-barLeft)} bar au-delà d'un bloc plein`} · ${r0(perMin)} L/min à ${sol.D} m</div>
       </div>
       <div class="tile wide">
         <div class="lbl">Paliers</div>
         <div class="stops">${stopsHtml}</div>
-        ${decoGasHtml ? `<div class="det" style="margin-top:4px">${decoGasHtml}</div>` : ''}
+        ${sol.mn ? `<div class="det" style="margin-top:4px">Table MN90 lue à ${sol.mn.dt} m${sol.mn.dt !== sol.D ? ' (équivalent air)' : ''} · ${sol.mn.t} min · GPS ${sol.mn.gps === '*' ? '— (successive interdite)' : sol.mn.gps}${sol.mn.o2red ? ' · paliers O₂ réduits (×2/3)' : ''}</div>` : ''}
       </div>
     </div>
     ${warns.length ? `<div class="warnings">${warns.map(w => '⚠ ' + w).join('<br>')}</div>` : ''}
@@ -593,12 +800,13 @@ function card(sol, cfg, idx) {
 }
 
 // ───────────── État / UI ─────────────
-const state = { mode: 'deep', vol: 12, ppo2: 1.4, sac: 20, gas: new Set(['air', 'nitrox', 'o2']), depth: 30, time: 45 };
+const state = { mode: 'deep', algo: 'buhlmann', vol: 12, ppo2: 1.4, sac: 20, gas: new Set(['air', 'nitrox', 'o2']), depth: 30, time: 45 };
 
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem('nitroxPlanner') || 'null');
     if (!s) return;
+    if (s.algo === 'buhlmann' || s.algo === 'mn90') state.algo = s.algo;
     if (s.mode === 'deep' || s.mode === 'shallow') state.mode = s.mode;
     if (s.vol === 12 || s.vol === 15) state.vol = s.vol;
     if ([1.3, 1.4, 1.6].includes(s.ppo2)) state.ppo2 = s.ppo2;
@@ -615,7 +823,7 @@ function save() {
 }
 
 function syncUi() {
-  const vals = { mode: state.mode, vol: String(state.vol), ppo2: String(state.ppo2), sac: String(state.sac) };
+  const vals = { mode: state.mode, algo: state.algo, vol: String(state.vol), ppo2: String(state.ppo2), sac: String(state.sac) };
   document.querySelectorAll('[data-group]').forEach(grp => {
     const g = grp.dataset.group;
     grp.querySelectorAll('.btn').forEach(b => {
@@ -630,20 +838,23 @@ function render() {
   SAC = state.sac;
   const cfg = {
     mode: state.mode, vol: state.vol, ppo2: state.ppo2, gas: state.gas,
-    depth: state.depth, tmax: state.time || Infinity
+    depth: state.depth, tbot: state.time || null, sac: state.sac, algo: state.algo
   };
   const box = $('results');
   if (!state.gas.size) {
     box.innerHTML = '<p class="empty">Sélectionne au moins un mélange.</p>';
     return;
   }
-  const props = buildProposals(cfg);
+  const props = buildProposals(cfg, true);
   if (!props.length) {
-    box.innerHTML = '<p class="empty">Aucune plongée réalisable avec ces paramètres (temps trop court, gaz insuffisant ou SNC dépassé).</p>';
+    box.innerHTML = '<p class="empty">Aucune proposition : profondeur trop faible pour ce mélange, ou plongée incalculable avec ces paramètres.</p>';
     return;
   }
-  box.innerHTML = `<div class="section-title">${props.length} proposition${props.length > 1 ? 's' : ''}
-    <small>${state.mode === 'deep' ? 'déco privilégiée' : 'palier minimal'}</small></div>`
+  const nOk = props.filter(p => p.feasible).length;
+  const title = cfg.tbot
+    ? `${nOk} réalisable${nOk > 1 ? 's' : ''} sur ${props.length} <small>fond ${cfg.tbot}′${cfg.depth ? ' à ' + cfg.depth + ' m' : ''}</small>`
+    : `${props.length} proposition${props.length > 1 ? 's' : ''} <small>temps au fond maximal</small>`;
+  box.innerHTML = `<div class="section-title">${title}</div>`
     + props.map((p, i) => card(p, cfg, i)).join('');
 }
 
@@ -655,7 +866,7 @@ document.querySelectorAll('[data-group]').forEach(grp => {
     if (!b) return;
     const g = grp.dataset.group, v = b.dataset.v;
     if (g === 'gas') { state.gas.has(v) ? state.gas.delete(v) : state.gas.add(v); }
-    else if (g === 'mode') state.mode = v;
+    else if (g === 'mode' || g === 'algo') state[g] = v;
     else state[g] = Number(v);
     syncUi();
     update();
