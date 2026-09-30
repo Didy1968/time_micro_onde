@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Nitrox · Planificateur</title>
+<link rel="manifest" href="nitrox-manifest.json">
+<meta name="theme-color" content="#2c2825">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Nitrox">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --cream: #f5f0e8;
+    --warm-white: #faf7f2;
+    --charcoal: #2c2825;
+    --ember: #c94f1e;
+    --amber: #e8903a;
+    --sand: #d4c4a8;
+    --muted: #8c7f72;
+    --panel: #ece6db;
+    --ok: #3f8f5b;
+    --bad: #c62828;
+    --warn: #d98a1f;
+    --g-air: #5b9bd5;
+    --g-nx: #4fb37a;
+    --g-rich: #e8903a;
+    --g-o2: #e0563a;
+  }
+
+  body {
+    background: var(--cream);
+    color: var(--charcoal);
+    font-family: 'DM Sans', sans-serif;
+    min-height: 100svh;
+    display: flex;
+    justify-content: center;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 100;
+    opacity: 0.6;
+  }
+
+  .app {
+    width: 100%;
+    max-width: 420px;
+    padding: 0 0 max(16px, env(safe-area-inset-bottom, 0px));
+  }
+
+  header {
+    padding: max(10px, env(safe-area-inset-top)) 20px 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .header-icon {
+    width: 30px; height: 30px; flex-shrink: 0;
+    background: var(--charcoal);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .header-icon svg {
+    width: 18px; height: 18px; fill: none; stroke: var(--amber);
+    stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+  }
+  .header-text h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.25rem; line-height: 1.1; letter-spacing: -0.02em;
+  }
+  .header-text h1 span { color: var(--ember); }
+  .subtitle { font-size: 0.7rem; color: var(--muted); font-weight: 300; line-height: 1.3; margin-top: 1px; }
+
+  .card {
+    margin: 0 12px 8px;
+    background: var(--warm-white);
+    border-radius: 16px;
+    padding: 10px 14px;
+    border: 1px solid rgba(0,0,0,0.06);
+    box-shadow: 0 2px 8px rgba(44,40,37,0.06);
+  }
+  .card-label {
+    font-size: 0.65rem; font-weight: 500; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 6px;
+  }
+  .card-label small { text-transform: none; letter-spacing: 0; font-weight: 300; }
+
+  .row { display: grid; gap: 6px; }
+  .c2 { grid-template-columns: repeat(2, 1fr); }
+  .c3 { grid-template-columns: repeat(3, 1fr); }
+  .c4 { grid-template-columns: repeat(4, 1fr); }
+
+  .btn {
+    background: var(--panel);
+    border: 2px solid transparent;
+    border-radius: 10px;
+    padding: 6px 2px;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.75rem; font-weight: 500;
+    color: var(--muted);
+    cursor: pointer; text-align: center;
+    transition: all 0.15s;
+    line-height: 1.2;
+  }
+  .btn b { display: block; font-size: 0.95rem; color: var(--charcoal); font-weight: 500; }
+  .btn i { display: block; font-style: normal; font-family: 'DM Sans', sans-serif; font-size: 0.62rem; font-weight: 300; }
+  .btn:hover { border-color: var(--sand); background: var(--cream); }
+  .btn.active {
+    background: var(--charcoal); border-color: var(--charcoal); color: var(--sand);
+    box-shadow: 0 2px 8px rgba(44,40,37,0.2);
+  }
+  .btn.active b { color: var(--amber); }
+
+  .num {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+  }
+  .num input {
+    width: 100%;
+    background: var(--panel);
+    border: 2px solid transparent;
+    border-radius: 10px;
+    font-family: 'DM Mono', monospace;
+    font-size: 1.7rem; font-weight: 500; color: var(--charcoal);
+    text-align: center; padding: 4px;
+    outline: none; transition: border-color .2s, background .2s;
+    -moz-appearance: textfield;
+  }
+  .num input::-webkit-outer-spin-button,
+  .num input::-webkit-inner-spin-button { -webkit-appearance: none; }
+  .num input:focus { border-color: var(--amber); background: var(--warm-white); }
+  .num label { font-size: 0.65rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+
+  .note { font-size: 0.68rem; color: var(--muted); font-weight: 300; margin-top: 6px; line-height: 1.35; }
+
+  /* Résultats */
+  .section-title {
+    margin: 14px 20px 6px;
+    font-family: 'DM Serif Display', serif; font-size: 1.05rem;
+  }
+  .section-title small { font-family: 'DM Sans', sans-serif; font-size: .68rem; color: var(--muted); font-weight: 300; margin-left: 4px; }
+
+  .prop {
+    margin: 0 12px 12px;
+    background: var(--charcoal);
+    color: var(--warm-white);
+    border-radius: 16px;
+    padding: 12px 14px 14px;
+    box-shadow: 0 4px 16px rgba(44,40,37,0.18);
+    animation: fadeUp .25s ease;
+  }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  .prop-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .prop-title { font-family: 'DM Serif Display', serif; font-size: 1.25rem; line-height: 1.1; }
+  .prop-sub { font-size: .72rem; color: var(--sand); font-weight: 300; margin-top: 3px; }
+  .badge {
+    font-size: .6rem; letter-spacing: .1em; text-transform: uppercase; font-weight: 500;
+    background: var(--amber); color: var(--charcoal); border-radius: 20px; padding: 3px 8px; white-space: nowrap;
+  }
+
+  .chart { width: 100%; height: auto; display: block; margin: 8px 0 2px; }
+  .chart text { font-family: 'DM Mono', monospace; font-size: 8px; fill: var(--muted); }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: .65rem; color: var(--sand); margin-bottom: 8px; }
+  .legend span::before {
+    content: ''; display: inline-block; width: 9px; height: 3px; border-radius: 2px;
+    background: var(--c); margin-right: 5px; vertical-align: middle;
+  }
+
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .tile { background: rgba(255,255,255,.06); border-radius: 10px; padding: 7px 9px; }
+  .tile.wide { grid-column: 1 / -1; }
+  .tile .lbl { font-size: .58rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+  .tile .val { font-family: 'DM Mono', monospace; font-size: 1.15rem; font-weight: 500; line-height: 1.25; }
+  .tile .val small { font-size: .7rem; color: var(--sand); font-weight: 400; }
+  .tile .det { font-size: .66rem; color: var(--sand); font-weight: 300; line-height: 1.35; }
+  .ok { color: #66c98d; }
+  .bad { color: #ff6b5e; }
+  .warn { color: #f0b04a; }
+
+  .stops { font-family: 'DM Mono', monospace; font-size: .8rem; line-height: 1.5; }
+  .stops em { font-style: normal; color: var(--amber); }
+
+  .warnings { margin-top: 8px; font-size: .68rem; color: #f0b04a; line-height: 1.4; }
+
+  .empty { margin: 0 20px; font-size: .9rem; color: var(--muted); font-style: italic; font-weight: 300; }
+
+  .disclaimer { margin: 6px 20px 0; font-size: .64rem; color: var(--muted); font-weight: 300; line-height: 1.45; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <div class="header-icon">
+      <svg viewBox="0 0 24 24">
+        <rect x="8" y="7" width="8" height="14" rx="4"/>
+        <path d="M10 7V5h4v2M12 5V3M9 12h6"/>
+      </svg>
+    </div>
+    <div class="header-text">
+      <h1>Nitrox<span>·</span>Planner</h1>
+      <p class="subtitle">Propositions de plongée Nitrox Confirmé, en direct.</p>
+    </div>
+  </header>
+
+  <div class="card">
+    <div class="card-label">Type de plongée</div>
+    <div class="row c2" data-group="mode">
+      <button class="btn" data-v="deep"><b>Profonde</b><i>privilégier la déco</i></button>
+      <button class="btn" data-v="shallow"><b>Peu profonde</b><i>peu de palier</i></button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row c2">
+      <div>
+        <div class="card-label">Volume du bloc</div>
+        <div class="row c2" data-group="vol">
+          <button class="btn" data-v="12"><b>12</b>L</button>
+          <button class="btn" data-v="15"><b>15</b>L</button>
+        </div>
+      </div>
+      <div>
+        <div class="card-label">Ppo2 max</div>
+        <div class="row c3" data-group="ppo2">
+          <button class="btn" data-v="1.3"><b>1.3</b></button>
+          <button class="btn" data-v="1.4"><b>1.4</b></button>
+          <button class="btn" data-v="1.6"><b>1.6</b></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row c2">
+      <div class="num">
+        <input type="number" id="depth" inputmode="numeric" min="6" max="60" placeholder="—">
+        <label>Profondeur max (m)</label>
+      </div>
+      <div class="num">
+        <input type="number" id="time" inputmode="numeric" min="5" max="240" placeholder="—">
+        <label>Temps max (min)</label>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Mélanges disponibles</div>
+    <div class="row c3" data-group="gas" data-multi="1">
+      <button class="btn" data-v="air"><b>Air</b><i>21 %</i></button>
+      <button class="btn" data-v="nitrox"><b>Nitrox</b><i>bloc / déco</i></button>
+      <button class="btn" data-v="o2"><b>Poney O₂</b><i>100 %</i></button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Conso surface (L/min)</div>
+    <div class="row c4" data-group="sac">
+      <button class="btn" data-v="20"><b>20</b></button>
+      <button class="btn" data-v="19"><b>19</b></button>
+      <button class="btn" data-v="18"><b>18</b></button>
+      <button class="btn" data-v="17"><b>17</b></button>
+    </div>
+  </div>
+
+  <div id="results"></div>
+
+  <p class="disclaimer">
+    Outil indicatif : Bühlmann ZH-L16C, GF 40/85, descente 20 m/min, remontée 10 m/min, palier de sécurité 3 min à 3 m,
+    bloc gonflé à 200 bar avec 50 bar de réserve, SNC limité à 80 % (tables NOAA).
+    Gaz de déco : ppO₂ 1,6 max (EAN 50, EAN 80 ≤ 7 L ; O₂ ≤ 4 L). Ne remplace ni les tables MN90,
+    ni un ordinateur, ni l'analyse de vos mélanges. Vérifiez toujours le contenu de vos blocs.
+  </p>
+
+</div>
+
+<script>
+// ───────────── Constantes ─────────────
+const GF_LO = 0.40, GF_HI = 0.85;
+const DESC = 20, ASC = 10;          // m/min
+const FILL = 200, RESERVE = 50;     // bar
+const CNS_MAX = 80;                 // %
+const MAX_DEPTH = 60;
+const PH2O = 0.0627;
+const DECO_MAX_SHALLOW = 5, DECO_MAX_DEEP = 60; // min de palier obligatoire
+
+// Bühlmann ZH-L16C (N2)
+const HT = [5.0, 8.0, 12.5, 18.5, 27.0, 38.3, 54.3, 77.0, 109.0, 146.0, 187.0, 239.0, 305.0, 390.0, 498.0, 635.0];
+const A  = [1.1696, 1.0, 0.8618, 0.7562, 0.62, 0.5043, 0.441, 0.4, 0.375, 0.35, 0.3295, 0.3065, 0.2835, 0.261, 0.248, 0.2327];
+const B  = [0.5578, 0.6514, 0.7222, 0.7825, 0.8126, 0.8434, 0.8693, 0.891, 0.9092, 0.9222, 0.9319, 0.9403, 0.9477, 0.9544, 0.9602, 0.9653];
+const K  = HT.map(h => Math.LN2 / h);
+
+// NOAA : durée max d'exposition (min) par ppO2, arrondi au 0,1 supérieur
+const CNS_TABLE = [[0.6,720],[0.7,570],[0.8,450],[0.9,360],[1.0,300],[1.1,240],[1.2,210],[1.3,180],[1.4,150],[1.5,120],[1.6,45]];
+function cnsLimit(pp) {
+  if (pp <= 0.5) return Infinity;
+  for (const [p, m] of CNS_TABLE) if (pp <= p + 1e-9) return m;
+  return 30;
+}
+
+let SAC = 20;
+
+// ───────────── Gaz ─────────────
+function mkGas(fo2, cap) {
+  const pct = Math.round(fo2 * 100);
+  const name = pct === 21 ? 'Air' : pct === 100 ? 'O₂' : 'EAN ' + pct;
+  return { id: name, name, fo2, cap };
+}
+const modOf = (fo2, pp) => Math.floor(10 * (pp / fo2 - 1) + 1e-6);
+const gasColor = g => g.fo2 <= 0.215 ? 'var(--g-air)' : g.fo2 < 0.5 ? 'var(--g-nx)' : g.fo2 < 1 ? 'var(--g-rich)' : 'var(--g-o2)';
+
+// ───────────── Moteur de décompression ─────────────
+function newState() {
+  return { t: HT.map(() => 0.79 * (1 - PH2O)), cns: 0, use: {}, time: 0, log: [] };
+}
+function clone(s) {
+  return { t: s.t.slice(), cns: s.cns, use: Object.assign({}, s.use), time: s.time, log: s.log.slice() };
+}
+function advance(st, d0, d1, dur, gas) {
+  if (dur <= 0) return;
+  const n = Math.max(1, Math.ceil(dur / 0.25)), sub = dur / n;
+  for (let i = 0; i < n; i++) {
+    const P = 1 + (d0 + (d1 - d0) * (i + 0.5) / n) / 10;
+    const pi = (P - PH2O) * (1 - gas.fo2);
+    for (let j = 0; j < 16; j++) st.t[j] = pi + (st.t[j] - pi) * Math.exp(-K[j] * sub);
+    st.cns += sub / cnsLimit(gas.fo2 * P) * 100;
+    st.use[gas.id] = (st.use[gas.id] || 0) + SAC * P * sub;
+  }
+  st.time += dur;
+  st.log.push({ d0, d1, dur, gas });
+}
+function ceilingM(st, gf) {
+  let m = 0;
+  for (let i = 0; i < 16; i++) {
+    const tol = (st.t[i] - A[i] * gf) / (gf / B[i] - gf + 1);
+    if (tol > m) m = tol;
+  }
+  return Math.max(0, (m - 1) * 10);
+}
+// Remontée avec paliers. gases[0] = fond ; renvoie null si palier > 300 min
+function ascend(st, D, gases) {
+  const gasAt = d => {
+    let g = gases[0];
+    for (const x of gases) if (x.maxD >= d && x.gas.fo2 > g.gas.fo2) g = x;
+    return g.gas;
+  };
+  const d1 = Math.ceil(ceilingM(st, GF_LO) / 3 - 1e-6) * 3;
+  const gf = dd => d1 <= 0 ? GF_HI : dd >= d1 ? GF_LO : GF_HI - (GF_HI - GF_LO) * dd / d1;
+  const stops = [];
+  let deco = 0, d = D;
+  while (d > 0) {
+    const next = d > 3 ? (d % 3 === 0 ? d - 3 : Math.floor(d / 3) * 3) : 0;
+    let w = 0;
+    while (ceilingM(st, gf(next)) > next + 0.01) {
+      advance(st, d, d, 1, gasAt(d));
+      if (++w > 300) return null;
+    }
+    let total = w;
+    if (d === 3 && D >= 10 && w < 3) {           // palier de sécurité
+      advance(st, 3, 3, 3 - w, gasAt(3));
+      total = 3;
+    }
+    if (w) deco += w;
+    if (total) stops.push({ d, min: total, gas: gasAt(d) });
+    advance(st, d, next, (d - next) / ASC, gasAt(d));
+    d = next;
+  }
+  return { stops, deco };
+}
+
+// Cherche le meilleur temps de fond à la profondeur D
+function attempt(bottom, gases, D, cfg) {
+  const usable = cfg.vol * (FILL - RESERVE);
+  const st = newState();
+  const tDesc = D / DESC;
+  advance(st, 0, D, tDesc, bottom);
+  let bestAll = null, bestGas = null, limit = null;
+  for (let m = 1; m <= 240; m++) {
+    advance(st, D, D, 1, bottom);
+    const c = clone(st);
+    const r = ascend(c, D, gases);
+    if (!r) break;
+    const decoLimit = cfg.mode === 'shallow' ? DECO_MAX_SHALLOW : DECO_MAX_DEEP;
+    let decoGasOk = true;
+    for (let i = 1; i < gases.length; i++) {
+      const g = gases[i].gas;
+      if ((c.use[g.id] || 0) > g.cap * (FILL - RESERVE)) decoGasOk = false;
+    }
+    const gasOk = (c.use[bottom.id] || 0) <= usable && decoGasOk;
+    const decoOk = r.deco <= decoLimit;
+    const timeOk = c.time <= cfg.tmax + 1e-9;
+    const cnsOk = c.cns <= CNS_MAX;
+    if (!gasOk || !decoOk) {
+      if (!limit) limit = !gasOk ? 'gaz' : 'palier';
+      break;
+    }
+    const sol = { D, bt: tDesc + m, rt: c.time, cns: c.cns, use: c.use, log: c.log, stops: r.stops, deco: r.deco };
+    bestGas = sol;
+    if (timeOk && cnsOk) bestAll = sol;
+    else if (!limit) limit = !timeOk ? 'temps saisi' : 'SNC';
+  }
+  if (!bestAll) return null;
+  bestAll.limit = limit || 'durée max';
+  bestAll.gasMaxRt = bestGas.rt;
+  bestAll.gasMaxBt = bestGas.bt;
+  return bestAll;
+}
+
+function plan(bottom, decoGases, D0, cfg) {
+  const gases = [{ gas: bottom, maxD: Infinity }].concat(
+    decoGases.filter(g => g.fo2 > bottom.fo2 + 0.005)
+             .map(g => ({ gas: g, maxD: Math.floor(modOf(g.fo2, 1.6) / 3) * 3 })));
+  for (let D = D0; D >= 6; D = (D === D0 ? Math.floor((D0 - 1) / 3) * 3 : D - 3)) {
+    const sol = attempt(bottom, gases, D, cfg);
+    if (sol) { sol.gases = gases; sol.bottom = bottom; sol.D0 = D0; return sol; }
+  }
+  return null;
+}
+
+// ───────────── Propositions ─────────────
+function buildProposals(cfg) {
+  const hasAir = cfg.gas.has('air'), hasNx = cfg.gas.has('nitrox'), hasO2 = cfg.gas.has('o2');
+  const req = cfg.depth || 40;
+  const wanted = Math.min(MAX_DEPTH, req);
+  const air = mkGas(0.21, 0);
+  const o2 = mkGas(1.0, 4);
+  const ean50 = mkGas(0.5, 7);
+  const ean80 = mkGas(0.8, 7);
+
+  const bestMix = () => {
+    let fo2 = Math.floor(cfg.ppo2 / (wanted / 10 + 1) * 100) / 100;
+    fo2 = Math.min(0.40, Math.max(0.21, fo2));
+    return mkGas(fo2, 0);
+  };
+  const cap = (g) => Math.min(wanted, MAX_DEPTH, modOf(g.fo2, cfg.ppo2));
+
+  const defs = [];
+  if (hasAir) defs.push({ key: 'air', title: 'Air', bottom: air, deco: [], dupOf: null });
+  if (hasNx) { const nx = bestMix(); defs.push({ key: 'nx', title: 'Nitrox fond', bottom: nx, deco: [], dupOf: null }); }
+  if (hasAir && (hasNx || hasO2)) {
+    defs.push({ key: 'airdeco', title: 'Air + déco nitrox', bottom: air,
+      deco: [].concat(hasNx ? [ean50] : [], hasO2 ? [o2] : []), dupOf: 'air' });
+  }
+  if (hasNx) {
+    const nx = bestMix();
+    defs.push({ key: 'nxdeco', title: 'Nitrox + déco riche', bottom: nx,
+      deco: [].concat([ean80], hasO2 ? [o2] : []), dupOf: 'nx' });
+  }
+
+  const out = [];
+  const done = {};
+  for (const def of defs) {
+    const D0 = Math.floor(cap(def.bottom));
+    if (D0 < 6) continue;
+    const sol = plan(def.bottom, def.deco, D0, cfg);
+    if (!sol) continue;
+    done[def.key] = sol;
+    if (def.dupOf) {
+      const usedDeco = sol.gases.slice(1).some(x => (sol.use[x.gas.id] || 0) > 0);
+      if (!usedDeco) continue;
+    }
+    sol.def = def;
+    out.push(sol);
+  }
+  out.sort((a, b) => b.bt - a.bt || a.cns - b.cns);
+  return out;
+}
+
+// ───────────── Rendu ─────────────
+const $ = id => document.getElementById(id);
+const r0 = x => Math.round(x);
+
+function chartSvg(sol) {
+  const W = 320, H = 128, pl = 28, pr = 8, pt = 10, pb = 16;
+  const T = sol.rt, Dm = Math.max(sol.D, 6);
+  const x = t => pl + (W - pl - pr) * t / T;
+  const y = d => pt + (H - pt - pb) * d / Dm;
+  let t = 0, pts = [`${x(0)},${y(0)}`], lines = '';
+  for (const s of sol.log) {
+    const t1 = t + s.dur;
+    lines += `<line x1="${x(t).toFixed(1)}" y1="${y(s.d0).toFixed(1)}" x2="${x(t1).toFixed(1)}" y2="${y(s.d1).toFixed(1)}" style="stroke:${gasColor(s.gas)}" stroke-width="2.6" stroke-linecap="round"/>`;
+    pts.push(`${x(t1).toFixed(1)},${y(s.d1).toFixed(1)}`);
+    t = t1;
+  }
+  const poly = pts.join(' ');
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Profil de plongée">
+    <line x1="${pl}" y1="${y(0)}" x2="${W - pr}" y2="${y(0)}" stroke="#5a524a" stroke-width="1"/>
+    <line x1="${pl}" y1="${y(Dm)}" x2="${W - pr}" y2="${y(Dm)}" stroke="#5a524a" stroke-width="1" stroke-dasharray="3 3"/>
+    <polygon points="${poly}" fill="rgba(212,196,168,.10)"/>
+    ${lines}
+    <text x="${pl - 4}" y="${y(0) + 3}" text-anchor="end">0</text>
+    <text x="${pl - 4}" y="${y(Dm) + 3}" text-anchor="end">${Dm}m</text>
+    <text x="${pl}" y="${H - 3}">0</text>
+    <text x="${W - pr}" y="${H - 3}" text-anchor="end">${r0(T)} min</text>
+  </svg>`;
+}
+
+function card(sol, cfg, idx) {
+  const g0 = sol.bottom;
+  const used0 = sol.use[g0.id] || 0;
+  const barLeft = Math.max(0, FILL - used0 / cfg.vol);
+  const mod0 = modOf(g0.fo2, cfg.ppo2);
+  const decoG = sol.gases.slice(1);
+  const usedDeco = decoG.filter(x => (sol.use[x.gas.id] || 0) > 0);
+
+  const depthOk = !cfg.depth || sol.D >= cfg.depth;
+  const depthDet = cfg.depth
+    ? (depthOk ? 'objectif atteint' : `demandé ${cfg.depth} m`)
+    : 'profondeur libre';
+
+  const cnsCls = sol.cns < 50 ? 'ok' : 'warn';
+  const barCls = barLeft >= 70 ? 'ok' : 'warn';
+
+  const stopsHtml = sol.stops.length
+    ? sol.stops.map(s => `<em>${s.d} m</em> ${s.min}′${s.gas.fo2 > g0.fo2 + 0.005 ? ` <span style="color:${gasColor(s.gas)}">(${s.gas.name})</span>` : ''}`).join(' · ')
+    : 'aucun';
+
+  const gasList = [g0].concat(usedDeco.map(x => x.gas));
+  const legend = gasList.map(g => `<span style="--c:${gasColor(g)}">${g.name}</span>`).join('');
+
+  const decoGasHtml = usedDeco.map(x => {
+    const L = sol.use[x.gas.id];
+    const need = Math.ceil(L / (FILL - RESERVE) * 2) / 2;
+    return `${x.gas.name} : ${r0(L)} L, poney ≥ ${need} L · plancher ${x.maxD} m`;
+  }).join('<br>');
+
+  const warns = [];
+  if (g0.fo2 <= 0.215 && sol.D > 40) warns.push('Air au-delà de 40 m : forte narcose (PpN₂ élevée).');
+  if (cfg.ppo2 >= 1.6) warns.push('PpO₂ 1,6 au fond : marge très réduite, réservé aux paliers.');
+  if (sol.cns >= 50) warns.push('SNC élevé : prévoir un intervalle de surface long.');
+
+  const title = sol.def.title;
+  const sub = usedDeco.length
+    ? `Fond ${g0.name} · déco ${usedDeco.map(x => x.gas.name).join(' / ')}`
+    : `Fond et paliers ${g0.name}`;
+
+  return `<div class="prop">
+    <div class="prop-head">
+      <div><div class="prop-title">${title}</div><div class="prop-sub">${sub}</div></div>
+      ${idx === 0 ? '<span class="badge">Plus long</span>' : ''}
+    </div>
+    ${chartSvg(sol)}
+    <div class="legend">${legend}</div>
+    <div class="tiles">
+      <div class="tile">
+        <div class="lbl">Profondeur max</div>
+        <div class="val ${depthOk ? 'ok' : 'bad'}">${sol.D}<small> m</small></div>
+        <div class="det">${depthDet}</div>
+      </div>
+      <div class="tile">
+        <div class="lbl">Profondeur plancher</div>
+        <div class="val">${mod0}<small> m</small></div>
+        <div class="det">${g0.name} à ppO₂ ${String(cfg.ppo2).replace('.', ',')}</div>
+      </div>
+      <div class="tile">
+        <div class="lbl">Temps de plongée</div>
+        <div class="val">${r0(sol.rt)}<small> min</small></div>
+        <div class="det">dont fond ${r0(sol.bt)}′ · limité par ${sol.limit}</div>
+      </div>
+      <div class="tile">
+        <div class="lbl">Temps max (bloc)</div>
+        <div class="val">${r0(sol.gasMaxRt)}<small> min</small></div>
+        <div class="det">${cfg.vol} L · ${SAC} L/min · fond ${r0(sol.gasMaxBt)}′</div>
+      </div>
+      <div class="tile">
+        <div class="lbl">SNC</div>
+        <div class="val ${cnsCls}">${sol.cns < 1 ? '<1' : r0(sol.cns)}<small> %</small></div>
+        <div class="det">limite ${CNS_MAX} %</div>
+      </div>
+      <div class="tile">
+        <div class="lbl">Bloc au retour</div>
+        <div class="val ${barCls}">${r0(barLeft)}<small> bar</small></div>
+        <div class="det">départ ${FILL} bar</div>
+      </div>
+      <div class="tile wide">
+        <div class="lbl">Paliers</div>
+        <div class="stops">${stopsHtml}</div>
+        ${decoGasHtml ? `<div class="det" style="margin-top:4px">${decoGasHtml}</div>` : ''}
+      </div>
+    </div>
+    ${warns.length ? `<div class="warnings">${warns.map(w => '⚠ ' + w).join('<br>')}</div>` : ''}
+  </div>`;
+}
+
+// ───────────── État / UI ─────────────
+const state = { mode: 'deep', vol: 12, ppo2: 1.4, sac: 20, gas: new Set(['air', 'nitrox', 'o2']), depth: 30, time: 45 };
+
+function load() {
+  try {
+    const s = JSON.parse(localStorage.getItem('nitroxPlanner') || 'null');
+    if (!s) return;
+    if (s.mode === 'deep' || s.mode === 'shallow') state.mode = s.mode;
+    if (s.vol === 12 || s.vol === 15) state.vol = s.vol;
+    if ([1.3, 1.4, 1.6].includes(s.ppo2)) state.ppo2 = s.ppo2;
+    if ([17, 18, 19, 20].includes(s.sac)) state.sac = s.sac;
+    if (Array.isArray(s.gas)) state.gas = new Set(s.gas.filter(g => ['air', 'nitrox', 'o2'].includes(g)));
+    state.depth = s.depth > 0 ? s.depth : null;
+    state.time = s.time > 0 ? s.time : null;
+  } catch (e) {}
+}
+function save() {
+  try {
+    localStorage.setItem('nitroxPlanner', JSON.stringify(Object.assign({}, state, { gas: [...state.gas] })));
+  } catch (e) {}
+}
+
+function syncUi() {
+  const vals = { mode: state.mode, vol: String(state.vol), ppo2: String(state.ppo2), sac: String(state.sac) };
+  document.querySelectorAll('[data-group]').forEach(grp => {
+    const g = grp.dataset.group;
+    grp.querySelectorAll('.btn').forEach(b => {
+      b.classList.toggle('active', g === 'gas' ? state.gas.has(b.dataset.v) : b.dataset.v === vals[g]);
+    });
+  });
+  $('depth').value = state.depth || '';
+  $('time').value = state.time || '';
+}
+
+function render() {
+  SAC = state.sac;
+  const cfg = {
+    mode: state.mode, vol: state.vol, ppo2: state.ppo2, gas: state.gas,
+    depth: state.depth, tmax: state.time || Infinity
+  };
+  const box = $('results');
+  if (!state.gas.size) {
+    box.innerHTML = '<p class="empty">Sélectionne au moins un mélange.</p>';
+    return;
+  }
+  const props = buildProposals(cfg);
+  if (!props.length) {
+    box.innerHTML = '<p class="empty">Aucune plongée réalisable avec ces paramètres (temps trop court, gaz insuffisant ou SNC dépassé).</p>';
+    return;
+  }
+  box.innerHTML = `<div class="section-title">${props.length} proposition${props.length > 1 ? 's' : ''}
+    <small>${state.mode === 'deep' ? 'déco privilégiée' : 'palier minimal'}</small></div>`
+    + props.map((p, i) => card(p, cfg, i)).join('');
+}
+
+function update() { save(); render(); }
+
+document.querySelectorAll('[data-group]').forEach(grp => {
+  grp.addEventListener('click', e => {
+    const b = e.target.closest('.btn');
+    if (!b) return;
+    const g = grp.dataset.group, v = b.dataset.v;
+    if (g === 'gas') { state.gas.has(v) ? state.gas.delete(v) : state.gas.add(v); }
+    else if (g === 'mode') state.mode = v;
+    else state[g] = Number(v);
+    syncUi();
+    update();
+  });
+});
+
+function numInput(id, key, min, max) {
+  $(id).addEventListener('input', e => {
+    const v = parseInt(e.target.value, 10);
+    state[key] = (v >= min && v <= max) ? v : null;
+    update();
+  });
+}
+numInput('depth', 'depth', 6, 60);
+numInput('time', 'time', 5, 240);
+
+load();
+syncUi();
+render();
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+</script>
+</body>
+</html>
