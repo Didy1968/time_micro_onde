@@ -1,0 +1,10 @@
+{
+  "name": "Nitrox Planificateur",
+  "short_name": "Nitrox",
+  "description": "Propose des profils de plongée Nitrox Confirmé : profondeur, temps, SNC, profondeur plancher",
+  "start_url": "./nitrox-planner.html",
+  "display": "standalone",
+  "background_color": "#f5f0e8",
+  "theme_color": "#2c2825",
+  "orientation": "portrait"
+}
