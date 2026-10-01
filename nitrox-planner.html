@@ -282,6 +282,20 @@
   </div>
 
   <div class="card">
+    <div class="row c2">
+      <div class="num">
+        <input type="number" id="dend" inputmode="numeric" min="3" max="60" placeholder="= prof. max">
+        <label>Fin d'objectif (m)</label>
+      </div>
+      <div class="num">
+        <input type="number" id="tdeep" inputmode="numeric" min="1" max="240" placeholder="auto">
+        <label>Temps à la prof. max (min)</label>
+      </div>
+    </div>
+    <p class="note">Optionnel. Si la fin d'objectif est moins profonde que la profondeur max, la plongée commence profond (temps « auto » = le plus long possible), puis l'objectif se termine à cette profondeur, d'où part la remontée de déco.</p>
+  </div>
+
+  <div class="card">
     <div class="num">
       <input type="number" id="pfin" inputmode="numeric" min="1" max="200" placeholder="—">
       <label>Pression finale demandée par le DP (bar)</label>
@@ -535,27 +549,20 @@ function assess(c, r, bottom, gases, cfg) {
   const flags = { gas: needB <= usable, decoGas: !decoIssues.length, deco: r.deco <= decoLimit, cns: c.cns <= CNS_MAX };
   return { usable, needB, decoIssues, decoLimit, flags, ok: flags.gas && flags.decoGas && flags.deco && flags.cns };
 }
-const FAIL_TXT = { gas: 'gaz du bloc', decoGas: 'gaz de déco', deco: 'durée des paliers', cns: 'SNC', max: 'durée max (4 h)', table: 'limite de la table MN90' };
+const FAIL_TXT = { gas: 'gaz du bloc', decoGas: 'gaz de déco', deco: 'durée des paliers', cns: 'SNC', max: 'durée max (4 h)', table: 'limite de la table MN90', endtop: 'palier plus profond que la fin d\'objectif', tdeep: 'temps à la profondeur max' };
 const firstFail = fl => ['gas', 'decoGas', 'deco', 'cns'].find(k => !fl[k]) || null;
 
 // Profil complet pour un temps au fond donné (surface → début de remontée)
-function simulate(bottom, gases, D, bt, cfg, fill) {
-  const tDesc = D / DESC;
-  if (bt < tDesc - 1e-9) return { err: 'desc', D, bt };
-  const mn = cfg.algo === 'mn90' ? mnRow(D, bottom.fo2, bt) : null;
-  if (mn && mn.err) return { err: 'table', D, bt, dt: mn.dt, max: mn.max };
-  const run = (ext, fin) => {
-    const st = newState();
-    advance(st, 0, D, tDesc, bottom, 'desc');
-    advance(st, D, D, bt - tDesc, bottom, 'fond');
-    const r = mn ? ascendMN90(st, D, gases, mn.row, ext) : ascend(st, D, gases, ext, fin);
-    return { st, r };
-  };
-  let { st, r } = run(0, null);
+// Fin de simulation commune (profil mono- ou bi-niveau) : paliers, contraintes, complément éventuel
+// run(ext, fin) -> { st, r, viol } ; viol = profondeur du palier requis plus profond que la fin d'objectif
+function finishSim(run, bottom, gases, D, bt, cfg, fill, mn, extra) {
+  let { st, r, viol } = run(0, null);
+  if (viol) return { err: 'endtop', D, bt, need: viol, Le: extra.Le };
   if (!r) return { err: 'deco', D, bt };
   let a = assess(st, r, bottom, gases, cfg);
   const needB0 = a.needB, deco0 = r.deco;
   let ext = 0, fin = null, alt = null;
+  const Ltop = extra.Le;                                     // profondeur d'où part la remontée
   if (fill && cfg.pfin != null && a.flags.gas) {            // on complète jusqu'à la pression finale demandée
     const okRun = (e, f) => {
       const x = run(e, f);
@@ -570,7 +577,7 @@ function simulate(bottom, gases, D, bt, cfg, fill) {
         while (lo < hi) { const mid = Math.ceil((lo + hi) / 2); if (okRun(0, { top, t: mid, single })) lo = mid; else hi = mid - 1; }
         return lo;
       };
-      for (let top = Math.floor((D - 1) / 3) * 3; top >= 3 && !fin; top -= 3) {   // niveau de départ le plus profond possible
+      for (let top = Math.floor((Ltop - 1) / 3) * 3; top >= 3 && !fin; top -= 3) {   // niveau de départ le plus profond possible
         const t = bestT(top, false);
         if (t >= 2) {
           let plus = 0;
@@ -578,7 +585,7 @@ function simulate(bottom, gases, D, bt, cfg, fill) {
           fin = { top, t, plus };
         }
       }
-      for (let top = Math.floor((D - 1) / 3) * 3; top >= 6 && !alt; top -= 3) {   // alternative : un seul niveau
+      for (let top = Math.floor((Ltop - 1) / 3) * 3; top >= 6 && !alt; top -= 3) {   // alternative : un seul niveau
         const t = bestT(top, true);
         if (t >= 5) alt = { d: top, t };
       }
@@ -592,17 +599,78 @@ function simulate(bottom, gases, D, bt, cfg, fill) {
     }
   }
   return Object.assign({ D, bt, rt: st.time, cns: st.cns, use: st.use, log: st.log, stops: r.stops, deco: r.deco,
-    ext, fin, alt, needB0, firstStop: r.firstStop, mn: mn ? { dt: mn.dt, t: mn.row[0], gps: mn.row[6], o2red: r.o2red } : null }, a);
+    ext, fin, alt, needB0, firstStop: r.firstStop, mn: mn ? { dt: mn.dt, t: mn.row[0], gps: mn.row[6], o2red: r.o2red } : null },
+    extra, a);
+}
+
+// Profil complet pour un temps au fond donné (surface → début de remontée)
+function simulate(bottom, gases, D, bt, cfg, fill) {
+  const tDesc = D / DESC;
+  if (bt < tDesc - 1e-9) return { err: 'desc', D, bt };
+  const mn = cfg.algo === 'mn90' ? mnRow(D, bottom.fo2, bt) : null;
+  if (mn && mn.err) return { err: 'table', D, bt, dt: mn.dt, max: mn.max };
+  if (cfg.dend && cfg.dend < D) return simulateEnd(bottom, gases, D, bt, cfg.dend, cfg, fill, mn);
+  const run = (ext, fin) => {
+    const st = newState();
+    advance(st, 0, D, tDesc, bottom, 'desc');
+    advance(st, D, D, bt - tDesc, bottom, 'fond');
+    const r = mn ? ascendMN90(st, D, gases, mn.row, ext) : ascend(st, D, gases, ext, fin);
+    return { st, r };
+  };
+  return finishSim(run, bottom, gases, D, bt, cfg, fill, mn, { Le: D, stay: bt - tDesc, t2: 0 });
+}
+
+// Profil à deux niveaux : début profond (D), puis fin d'objectif à Le d'où part la remontée de déco
+function simulateEnd(bottom, gases, D, bt, Le, cfg, fill, mn) {
+  const tDesc = D / DESC, tUp = (D - Le) / ASC, maxStay = bt - tDesc - tUp;
+  if (maxStay < -1e-9) return { err: 'endtime', D, bt, Le, need: Math.ceil(tDesc + tUp) };
+  const mk = stay => (ext, fin) => {
+    const st = newState();
+    advance(st, 0, D, tDesc, bottom, 'desc');
+    advance(st, D, D, stay, bottom, 'fond');
+    advance(st, D, Le, tUp, bottom, 'asc');
+    advance(st, Le, Le, bt - tDesc - stay - tUp, bottom, 'fond');
+    if (mn) {                                                // MN90 : le premier palier de la table doit être sous Le
+      const first = [15, 12, 9, 6, 3].find(k => mn.row[{ 15: 1, 12: 2, 9: 3, 6: 4, 3: 5 }[k]] > 0);
+      if (first && first >= Le) return { st, r: null, viol: first };
+      return { st, r: ascendMN90(st, Le, gases, mn.row, ext) };
+    }
+    const d1 = Math.ceil(ceilingM(st, GF_LO) / 3 - 1e-6) * 3;   // palier requis plus profond que Le : impossible
+    if (d1 >= Le && d1 > 0) return { st, r: null, viol: d1 };
+    return { st, r: ascend(st, Le, gases, ext, fin) };
+  };
+  let stay;
+  if (cfg.tdeep != null) {
+    if (cfg.tdeep > maxStay + 1e-9) return { err: 'tdeep', D, bt, Le, max: Math.floor(maxStay) };
+    stay = cfg.tdeep;
+  } else {                                                   // auto : le plus long séjour profond compatible avec les contraintes
+    const test = (st0, needGas) => {
+      const x = mk(st0)(0, null);
+      if (!x.r) return false;
+      const a = assess(x.st, x.r, bottom, gases, cfg);
+      return a.flags.cns && a.flags.deco && a.flags.decoGas && (!needGas || a.flags.gas);
+    };
+    const search = needGas => {
+      if (!test(0, needGas)) return -1;
+      let lo = 0, hi = Math.floor(maxStay + 1e-9);
+      while (lo < hi) { const mid = Math.ceil((lo + hi) / 2); if (test(mid, needGas)) lo = mid; else hi = mid - 1; }
+      return lo;
+    };
+    stay = search(true);
+    if (stay < 0) stay = Math.max(0, search(false));
+  }
+  return finishSim(mk(stay), bottom, gases, D, bt, cfg, fill, mn, { Le, stay, t2: bt - tDesc - stay - tUp });
 }
 
 // Plus grand temps au fond (minutes entières) respectant toutes les contraintes
 function scanMax(bottom, gases, D, cfg) {
   const tDesc = D / DESC, bt0 = Math.ceil(tDesc - 1e-9);
-  if (cfg.algo === 'mn90') {
+  if (cfg.algo === 'mn90' || (cfg.dend && cfg.dend < D)) {
     let best = null, limit = 'max';
     for (let bt = bt0; bt <= MAX_BT; bt++) {
       const s = simulate(bottom, gases, D, bt, cfg);
-      if (s.err) { limit = s.err === 'table' ? 'table' : 'deco'; break; }
+      if ((s.err === 'endtime' || s.err === 'tdeep') && best == null) continue;   // temps encore trop court
+      if (s.err) { limit = ['table', 'endtop', 'tdeep'].includes(s.err) ? s.err : 'deco'; break; }
       if (!s.ok) { limit = firstFail(s.flags); break; }
       best = bt;
     }
@@ -788,7 +856,7 @@ function decoRemovalTips(sol, cfg) {
       if (!s.flags.deco || !s.flags.cns) break;
       best = s;
     }
-    if (best) ml.push(`${r0(best.t1)} min à ${D} m, puis ${r0(best.t2)} min à ${L2} m${best.flags.gas ? '' : ' (gaz insuffisant)'}`);
+    if (best) ml.push(`${r0(best.t1)} min à ${D} m, puis ${r0(best.t2)} min à ${L2} m (fin d'objectif : ${L2} m)${best.flags.gas ? '' : ' (gaz insuffisant)'}`);
   }
   if (ml.length) tips.push(`Plongée multi-niveaux (${T} min au total, ${noDeco}${cfg.algo === 'mn90' ? ', calcul Bühlmann : MN90 n\'admet pas le multi-niveaux' : ''}) : ${ml.join(' · ')}`);
   return tips;
@@ -832,6 +900,9 @@ function feasibleKeys(cfg) {
 function suggestions(sol, cfg) {
   const out = [];
   const key = sol.def.key;
+  if (sol.err === 'endtop') return [`Profondeur de fin d'objectif ≥ ${sol.need + 3} m`, 'Réduire le temps à la profondeur max (ou le laisser en Auto)', 'Réduire le temps au fond'];
+  if (sol.err === 'endtime') return [`Temps au fond ≥ ${sol.need} min`, 'Profondeur de fin d\'objectif plus profonde'];
+  if (sol.err === 'tdeep') return [`Temps à la profondeur max ≤ ${sol.max} min (ou Auto)`];
   if (sol.err === 'desc') return [`Temps au fond ≥ ${Math.ceil(sol.D / DESC)} min (temps de descente)`];
   if (sol.scan && sol.scan.bt != null && sol.scan.bt < cfg.tbot && !sol.ok)
     out.push(`Temps au fond ≤ ${sol.scan.bt} min`);
@@ -888,9 +959,9 @@ function chartSvg(sol) {
     <line x1="${pl}" y1="${y(Dm)}" x2="${W - pr}" y2="${y(Dm)}" stroke="#5a524a" stroke-width="1" stroke-dasharray="3 3"/>
     <polygon points="${pts.join(' ')}" fill="rgba(212,196,168,.10)"/>
     ${lines}
-    <line x1="${x(sol.bt).toFixed(1)}" y1="${y(0)}" x2="${x(sol.bt).toFixed(1)}" y2="${y(sol.D).toFixed(1)}" stroke="#e8903a" stroke-width="1" stroke-dasharray="2 2"/>
-    <circle cx="${x(sol.bt).toFixed(1)}" cy="${y(sol.D).toFixed(1)}" r="3" fill="#e8903a"/>
-    <text x="${(x(sol.bt) - 5).toFixed(1)}" y="${(y(sol.D) - 5).toFixed(1)}" text-anchor="end" style="fill:#e8903a">fin d'objectif</text>
+    <line x1="${x(sol.bt).toFixed(1)}" y1="${y(0)}" x2="${x(sol.bt).toFixed(1)}" y2="${y(sol.Le).toFixed(1)}" stroke="#e8903a" stroke-width="1" stroke-dasharray="2 2"/>
+    <circle cx="${x(sol.bt).toFixed(1)}" cy="${y(sol.Le).toFixed(1)}" r="3" fill="#e8903a"/>
+    <text x="${(x(sol.bt) - 5).toFixed(1)}" y="${(y(sol.Le) - 5).toFixed(1)}" text-anchor="end" style="fill:#e8903a">fin d'objectif</text>
     <text x="${pl - 4}" y="${y(0) + 3}" text-anchor="end">0</text>
     <text x="${pl - 4}" y="${y(Dm) + 3}" text-anchor="end">${Dm}m</text>
     <text x="${pl}" y="${H - 3}">0</text>
@@ -902,6 +973,9 @@ function reasons(sol, cfg) {
   const r = [];
   if (sol.err === 'desc') return [`temps au fond inférieur à la descente (${Math.ceil(sol.D / DESC)} min)`];
   if (sol.err === 'deco') return ['paliers supérieurs à 5 h'];
+  if (sol.err === 'endtop') return [`fin d'objectif à ${sol.Le} m : un palier est requis plus profond (${sol.need} m)`];
+  if (sol.err === 'endtime') return [`temps au fond trop court : ${sol.need} min pour descendre à ${sol.D} m puis remonter à ${sol.Le} m`];
+  if (sol.err === 'tdeep') return [`temps à la profondeur max trop long : ${sol.max} min au maximum`];
   if (sol.err === 'table') return [sol.max ? `hors table MN90 : ${sol.max} min maximum à ${sol.dt} m (profondeur équivalente)` : 'hors table MN90 : profondeur équivalente > 65 m'];
   if (!sol.flags.gas) r.push(`gaz du bloc insuffisant : il manque ${fmt(sol.needB - sol.usable)} L`);
   if (!sol.flags.decoGas) r.push(sol.decoIssues.map(i => `${i.gas.name} : ${fmt(i.L)} L > ${fmt(i.capL)} L (poney ${i.gas.cap} L max)`).join(' ; '));
@@ -1022,8 +1096,8 @@ function card(sol, cfg, idx) {
       </div>
       <div class="tile wide">
         <div class="lbl">Fin d'objectif · début de la remontée</div>
-        <div class="val">${sol.D}<small> m, après ${r0(sol.bt)} min</small></div>
-        <div class="det">Remontée à ${cfg.algo === 'mn90' ? 15 : ASC} m/min · ${sol.firstStop ? `1er palier obligatoire à ${sol.firstStop} m` : 'aucun palier obligatoire'}${sol.fin ? ` · remontée lente recommandée dès ${sol.fin.top} m` : ''}</div>
+        <div class="val">${sol.Le}<small> m, après ${r0(sol.bt)} min</small></div>
+        <div class="det">${sol.Le < sol.D ? `${r0(sol.stay)} min à ${sol.D} m puis ${r0(sol.t2) > 0 ? r0(sol.t2) + ' min à ' + sol.Le + ' m' : 'remontée directe vers ' + sol.Le + ' m'} · ` : ''}Remontée à ${cfg.algo === 'mn90' ? 15 : ASC} m/min · ${sol.firstStop ? `1er palier obligatoire à ${sol.firstStop} m` : 'aucun palier obligatoire'}${sol.fin ? ` · remontée lente recommandée dès ${sol.fin.top} m` : ''}</div>
       </div>
       <div class="tile wide">
         <div class="lbl">${sol.fin ? 'Remontée et paliers' : 'Paliers'}</div>
@@ -1076,7 +1150,7 @@ function cmpCell(s, cfg, what) {
     case 'bt': return `${r0(s.bt)} min`;
     case 'max': return s.scan && s.scan.bt != null ? `${s.scan.bt} min` : '—';
     case 'rt': return `${r0(s.rt)} min`;
-    case 'end': return `${s.D} m · ${r0(s.bt)} min`;
+    case 'end': return `${s.Le} m · ${r0(s.bt)} min`;
     case 'first': return s.firstStop ? `${s.firstStop} m` : 'aucun';
     case 'stops': return stops;
     case 'deco': return `${s.deco} min`;
@@ -1146,7 +1220,7 @@ function renderCompare(cfg) {
 }
 
 // ───────────── État / UI ─────────────
-const state = { mode: 'deep', algo: 'buhlmann', vol: 12, ppo2: 1.4, sac: 20, gas: new Set(['air', 'nitrox', 'poney']), depth: 30, time: 45, nxO2: null, ponO2: null, pfin: null };
+const state = { mode: 'deep', algo: 'buhlmann', vol: 12, ppo2: 1.4, sac: 20, gas: new Set(['air', 'nitrox', 'poney']), depth: 30, time: 45, nxO2: null, ponO2: null, pfin: null, dend: null, tdeep: null };
 
 function load() {
   try {
@@ -1154,6 +1228,8 @@ function load() {
     if (!s) return;
     if (['buhlmann', 'mn90', 'compare'].includes(s.algo)) state.algo = s.algo;
     if (['deep', 'shallow', 'nodeco'].includes(s.mode)) state.mode = s.mode;
+    state.dend = s.dend >= 3 && s.dend <= 60 ? s.dend : null;
+    state.tdeep = s.tdeep >= 1 && s.tdeep <= 240 ? s.tdeep : null;
     state.pfin = s.pfin >= 1 && s.pfin <= FILL ? s.pfin : null;      // (l'ancien réglage en litres est abandonné)
     if (s.vol === 12 || s.vol === 15) state.vol = s.vol;
     if ([1.3, 1.4, 1.6].includes(s.ppo2)) state.ppo2 = s.ppo2;
@@ -1191,6 +1267,8 @@ function syncUi() {
   $('nxO2').value = state.nxO2 || '';
   $('ponO2').value = state.ponO2 || '';
   $('pfin').value = state.pfin || '';
+  $('dend').value = state.dend || '';
+  $('tdeep').value = state.tdeep || '';
   updatePfinNote();
   $('depth').value = state.depth || '';
   $('time').value = state.time || '';
@@ -1201,7 +1279,7 @@ function render() {
   const cfg = {
     mode: state.mode, vol: state.vol, ppo2: state.ppo2, gas: state.gas,
     depth: state.depth, tbot: state.time || null, sac: state.sac, algo: state.algo,
-    nxO2: state.nxO2, ponO2: state.ponO2, pfin: state.pfin
+    nxO2: state.nxO2, ponO2: state.ponO2, pfin: state.pfin, dend: state.dend, tdeep: state.tdeep
   };
   const box = $('results');
   if (!state.gas.size) {
@@ -1254,6 +1332,8 @@ fillSelect('nxO2', STD_NX); fillSelect('ponO2', STD_PON);
 selInput('nxO2', 'nxO2'); selInput('ponO2', 'ponO2');
 numInput('depth', 'depth', 6, 60);
 numInput('time', 'time', 5, 240);
+numInput('dend', 'dend', 3, 60);
+numInput('tdeep', 'tdeep', 1, 240);
 numInput('pfin', 'pfin', 1, FILL);
 $('pfin').addEventListener('input', updatePfinNote);
 
