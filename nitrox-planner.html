@@ -114,6 +114,15 @@
   }
   .btn b { display: block; font-size: 0.95rem; color: var(--charcoal); font-weight: 500; }
   .btn i { display: block; font-style: normal; font-family: 'DM Sans', sans-serif; font-size: 0.62rem; font-weight: 300; }
+  .sel-row { margin-top: 8px; align-items: end; }
+  .sel-row > div { min-width: 0; }
+  .sel-row .none { display: none; }
+  .sel-row label { display: block; font-size: .62rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 3px; }
+  .sel-row select {
+    width: 100%; background: var(--panel); border: 2px solid transparent; border-radius: 10px;
+    font-family: 'DM Mono', monospace; font-size: .85rem; color: var(--charcoal); padding: 7px 6px; outline: none;
+  }
+  .sel-row select:focus { border-color: var(--amber); }
   .btn:disabled { opacity: .45; cursor: not-allowed; }
   .btn:disabled:hover { border-color: transparent; background: var(--panel); }
   .btn:hover { border-color: var(--sand); background: var(--cream); }
@@ -281,8 +290,12 @@
     <div class="card-label">Mélanges disponibles</div>
     <div class="row c3" data-group="gas" data-multi="1">
       <button class="btn" data-v="air"><b>Air</b><i>21 %</i></button>
-      <button class="btn" data-v="nitrox"><b>Nitrox</b><i>bloc / déco</i></button>
-      <button class="btn" data-v="o2"><b>Poney O₂</b><i>100 %</i></button>
+      <button class="btn" data-v="nitrox"><b>Nitrox</b><i>fond</i></button>
+      <button class="btn" data-v="poney"><b>Poney</b><i>déco</i></button>
+    </div>
+    <div class="row c2 sel-row">
+      <div id="nxRow"><label>O₂ du nitrox</label><select id="nxO2"></select></div>
+      <div id="ponRow"><label>O₂ du poney</label><select id="ponO2"></select></div>
     </div>
   </div>
 
@@ -301,7 +314,7 @@
   <p class="disclaimer">
     Outil indicatif : Bühlmann ZH-L16C (GF 40/85) ou table MN90 (nitrox par profondeur équivalente air, O₂ pur aux paliers de 6 et 3 m avec durées ×2/3 ; les autres gaz de déco ne sont pas pris en compte en MN90), temps au fond = de la sortie de surface au début de remontée, descente 20 m/min, remontée 10 m/min (15 m/min en MN90), palier de sécurité 3 min à 3 m,
     bloc gonflé à 200 bar avec 50 bar de réserve, SNC limité à 80 % (tables NOAA).
-    Gaz de déco : ppO₂ 1,6 max (EAN 50, EAN 80 ≤ 7 L ; O₂ ≤ 4 L). Ne remplace ni les tables MN90,
+    Poney de déco : ppO₂ 1,6 max, taille ≤ 7 L (O₂ pur ≤ 4 L) ; avec « Auto », l'appli teste les mélanges standard et retient le plus favorable. Ne remplace ni les tables MN90,
     ni un ordinateur, ni l'analyse de vos mélanges. Vérifiez toujours le contenu de vos blocs.
   </p>
 
@@ -542,51 +555,91 @@ function scanMax(bottom, gases, D, cfg) {
 }
 
 // ───────────── Propositions ─────────────
+const STD_NX = [25, 28, 30, 32, 34, 36, 38, 40];     // % O₂ standard (nitrox de fond)
+const STD_PON = [40, 50, 60, 70, 80, 100];           // % O₂ standard (poney de déco)
+const AUTO_PON = [50, 60, 80, 100];                  // candidats quand le poney est en « Auto »
+const ponGas = p => mkGas(p / 100, p === 100 ? 4 : 7);
+
+// Une « définition » = un type de profil, avec une ou plusieurs options de gaz à tester
+// (un taux d'O₂ laissé en « Auto » ouvre plusieurs candidats : le meilleur est retenu)
 function makeDefs(cfg) {
   const has = k => cfg.gas.has(k);
-  const wanted = Math.min(MAX_DEPTH, cfg.depth || 40);
-  const air = mkGas(0.21, 0), o2 = mkGas(1.0, 4), ean50 = mkGas(0.5, 7), ean80 = mkGas(0.8, 7);
-  const bestMix = () => {
-    let fo2 = Math.floor(cfg.ppo2 / (wanted / 10 + 1) * 100) / 100;
-    return mkGas(Math.min(0.40, Math.max(0.21, fo2)), 0);
-  };
-  const defs = [];
-  if (has('air')) defs.push({ key: 'air', title: 'Air', bottom: air, deco: [], dupOf: null });
-  const nxIsAir = bestMix().fo2 <= 0.215 && has('air');   // trop profond pour un vrai nitrox : même profil que l'air
-  if (has('nitrox') && !nxIsAir) defs.push({ key: 'nx', title: 'Nitrox fond', bottom: bestMix(), deco: [], dupOf: null });
   const mn = cfg.algo === 'mn90';     // MN90 : seul l'O₂ pur (paliers 6 et 3 m) est prévu en déco
-  if (has('air') && (mn ? has('o2') : (has('nitrox') || has('o2'))))
-    defs.push({ key: 'airdeco', title: mn ? 'Air + déco O₂' : 'Air + déco nitrox', bottom: air,
-      deco: mn ? [o2] : [].concat(has('nitrox') ? [ean50] : [], has('o2') ? [o2] : []), dupOf: 'air' });
-  if (has('nitrox') && !nxIsAir && (!mn || has('o2')))
-    defs.push({ key: 'nxdeco', title: mn ? 'Nitrox + déco O₂' : 'Nitrox + déco riche', bottom: bestMix(),
-      deco: mn ? [o2] : [].concat([ean80], has('o2') ? [o2] : []), dupOf: 'nx' });
-  for (const d of defs) {
-    d.D0 = Math.floor(Math.min(wanted, modOf(d.bottom.fo2, cfg.ppo2)));
-    d.gases = [{ gas: d.bottom, maxD: Infinity }].concat(
-      d.deco.filter(g => g.fo2 > d.bottom.fo2 + 0.005)
-            .map(g => ({ gas: g, maxD: Math.floor(modOf(g.fo2, 1.6) / 3) * 3 })));
+  const wanted = Math.min(MAX_DEPTH, cfg.depth || 40);
+  const air = mkGas(0.21, 0);
+
+  let nxOpts = [];
+  if (has('nitrox')) {
+    if (cfg.nxO2) nxOpts = [mkGas(cfg.nxO2 / 100, 0)];
+    else {
+      const lim = cfg.ppo2 / (wanted / 10 + 1);
+      nxOpts = STD_NX.filter(p => p / 100 <= lim + 1e-9).sort((a, b) => b - a).slice(0, 3).map(p => mkGas(p / 100, 0));
+      if (!nxOpts.length && !has('air')) nxOpts = [air];
+    }
   }
-  return defs.filter(d => d.D0 >= 6);
+  let ponOpts = [];
+  if (has('poney')) {
+    if (mn) ponOpts = (!cfg.ponO2 || cfg.ponO2 === 100) ? [ponGas(100)] : [];
+    else ponOpts = cfg.ponO2 ? [ponGas(cfg.ponO2)] : AUTO_PON.map(ponGas);
+  }
+  const mk = (key, title, bottomOpts, decoOpts, dupOf) => ({ key, title, bottomOpts, decoOpts, dupOf, wanted });
+  const defs = [];
+  if (has('air')) defs.push(mk('air', 'Air', [air], [[]], null));
+  if (nxOpts.length) defs.push(mk('nx', 'Nitrox fond', nxOpts, [[]], null));
+  if (has('air') && ponOpts.length) defs.push(mk('airdeco', 'Air + déco', [air], ponOpts.map(g => [g]), 'air'));
+  if (nxOpts.length && ponOpts.length) defs.push(mk('nxdeco', 'Nitrox + déco', nxOpts, ponOpts.map(g => [g]), 'nx'));
+  return defs;
 }
 const usesDeco = s => s.gases.slice(1).some(x => (s.use[x.gas.id] || 0) > 0);
 
-function evalDef(def, cfg, withScan) {
+// Profil pour une combinaison de gaz donnée
+function evalCombo(def, bottom, gases, D0, cfg, withScan) {
   let sol, scan = null;
   if (cfg.tbot) {
-    sol = simulate(def.bottom, def.gases, def.D0, cfg.tbot, cfg);
-    if (withScan) scan = scanMax(def.bottom, def.gases, def.D0, cfg);
+    sol = simulate(bottom, gases, D0, cfg.tbot, cfg);
+    if (withScan) scan = scanMax(bottom, gases, D0, cfg);
   } else {                                       // temps libre : on maximise
-    for (let D = def.D0; D >= 6; D = (D === def.D0 ? Math.floor((def.D0 - 1) / 3) * 3 : D - 3)) {
-      scan = scanMax(def.bottom, def.gases, D, cfg);
-      if (scan.bt != null) { sol = simulate(def.bottom, def.gases, D, scan.bt, cfg); break; }
+    for (let D = D0; D >= 6; D = (D === D0 ? Math.floor((D0 - 1) / 3) * 3 : D - 3)) {
+      scan = scanMax(bottom, gases, D, cfg);
+      if (scan.bt != null) { sol = simulate(bottom, gases, D, scan.bt, cfg); break; }
     }
     if (!sol) return null;
   }
-  sol.def = def; sol.bottom = def.bottom; sol.gases = def.gases; sol.scan = scan;
+  sol.def = def; sol.bottom = bottom; sol.gases = gases; sol.scan = scan;
   sol.depthOk = !cfg.depth || sol.D >= cfg.depth;
   sol.feasible = !sol.err && sol.ok && sol.depthOk;
   return sol;
+}
+
+// a est-il meilleur que b ?
+function better(a, b, cfg) {
+  if (!b) return true;
+  if (a.feasible !== b.feasible) return a.feasible;
+  if (cfg.tbot) {
+    if (!!a.err !== !!b.err) return !a.err;
+    if (a.err) return false;
+    if (a.depthOk !== b.depthOk) return a.depthOk;
+    return a.needB !== b.needB ? a.needB < b.needB : a.cns < b.cns;
+  }
+  return a.bt !== b.bt ? a.bt > b.bt : a.cns < b.cns;
+}
+
+function evalDef(def, cfg, withScan) {
+  let best = null;
+  const multi = def.bottomOpts.length * def.decoOpts.length > 1;
+  for (const b of def.bottomOpts) for (const dg of def.decoOpts) {
+    const gases = [{ gas: b, maxD: Infinity }].concat(
+      dg.filter(g => g.fo2 > b.fo2 + 0.005).map(g => ({ gas: g, maxD: Math.floor(modOf(g.fo2, 1.6) / 3) * 3 })));
+    const D0 = Math.floor(Math.min(def.wanted, modOf(b.fo2, cfg.ppo2)));
+    if (D0 < 6) continue;
+    const sol = evalCombo(def, b, gases, D0, cfg, withScan && !multi);
+    if (sol && better(sol, best, cfg)) best = sol;
+  }
+  if (!best) return null;
+  if (withScan && cfg.tbot && !best.scan) best.scan = scanMax(best.bottom, best.gases, best.D, cfg);
+  best.autoB = def.bottomOpts.length > 1;
+  best.autoD = def.decoOpts.length > 1;
+  return best;
 }
 
 function buildProposals(cfg, withScan) {
@@ -635,7 +688,9 @@ function suggestions(sol, cfg) {
   for (const p of [1.4, 1.6]) if (p > cfg.ppo2) tries.push({ label: `Ppo2 ${String(p).replace('.', ',')}`, c: { ppo2: p } });
   if (cfg.mode === 'shallow') tries.push({ label: 'Type : plongée profonde', c: { mode: 'deep' } });
   if (!cfg.gas.has('nitrox')) tries.push({ label: 'Ajouter du Nitrox', add: true, c: { gas: new Set([...cfg.gas, 'nitrox']) } });
-  if (!cfg.gas.has('o2')) tries.push({ label: 'Ajouter un poney O₂', add: true, c: { gas: new Set([...cfg.gas, 'o2']) } });
+  if (!cfg.gas.has('poney')) tries.push({ label: 'Ajouter un poney', add: true, c: { gas: new Set([...cfg.gas, 'poney']) } });
+  if (cfg.nxO2 && cfg.gas.has('nitrox')) tries.push({ label: 'Taux d\'O₂ du nitrox : Auto (optimal)', c: { nxO2: null } });
+  if (cfg.ponO2 && cfg.gas.has('poney')) tries.push({ label: 'Taux d\'O₂ du poney : Auto (optimal)', c: { ponO2: null } });
   for (const t of tries) {
     const c2 = Object.assign({}, cfg, t.c);
     const ks = feasibleKeys(c2);
@@ -703,7 +758,8 @@ function card(sol, cfg, idx) {
   const def = sol.def, g0 = sol.bottom;
   const head = (badge) => `<div class="prop-head">
       <div><div class="prop-title">${def.title}</div><div class="prop-sub">${
-        def.gases.length > 1 ? `Fond ${g0.name} · déco ${def.gases.slice(1).map(x => x.gas.name).join(' / ')}` : `Fond et paliers ${g0.name}`}</div></div>
+        (sol.gases.length > 1 ? `Fond ${g0.name}${sol.autoB ? ' (optimisé)' : ''} · déco ${sol.gases.slice(1).map(x => x.gas.name).join(' / ')}${sol.autoD ? ' (optimisé)' : ''}`
+          : `Fond et paliers ${g0.name}${sol.autoB ? ' (optimisé)' : ''}`)}</div></div>
       ${badge ? `<span class="badge">${badge}</span>` : ''}
     </div>`;
 
@@ -811,6 +867,9 @@ function card(sol, cfg, idx) {
 const CMP_COL = { b: 'var(--amber)', m: 'var(--g-air)' };
 const CMP_TITLE = { air: 'Air', nx: 'Nitrox fond', airdeco: 'Air + déco', nxdeco: 'Nitrox + déco' };
 
+const mnPoneyNote = cfg => (cfg.algo !== 'buhlmann' && cfg.gas.has('poney') && cfg.ponO2 && cfg.ponO2 !== 100)
+  ? '<p class="disclaimer" style="margin:0 20px 8px">MN90 : seul le poney d\'O₂ pur (100 %) est pris en compte, les profils avec déco sont donc masqués pour cette méthode (choisir « 100 % » ou « Auto »).</p>' : '';
+
 function chartCompare(B, M) {
   const W = 320, H = 128, pl = 28, pr = 8, pt = 10, pb = 16;
   const sols = [[B, CMP_COL.b, ''], [M, CMP_COL.m, '5 3']].filter(s => s[0] && !s[0].err);
@@ -902,13 +961,13 @@ function renderCompare(cfg) {
     return;
   }
   const sub = cfg.tbot ? `fond ${cfg.tbot}′${cfg.depth ? ' à ' + cfg.depth + ' m' : ''}` : 'temps au fond maximal';
-  box.innerHTML = `<div class="section-title">${keys.length} comparaison${keys.length > 1 ? 's' : ''} <small>${sub}</small></div>`
-    + '<p class="disclaimer" style="margin:0 20px 8px">Les gaz de déco diffèrent : Bühlmann peut utiliser EAN 50 / EAN 80 et O₂, MN90 seulement l\'O₂ pur (paliers 6 et 3 m, durées ×2/3). « Plus prudent » compare la durée des paliers obligatoires.</p>'
+  box.innerHTML = `<div class="section-title">${keys.length} comparaison${keys.length > 1 ? 's' : ''} <small>${sub}</small></div>` + mnPoneyNote(cfg)
+    + '<p class="disclaimer" style="margin:0 20px 8px">Les gaz de déco diffèrent : Bühlmann utilise le poney choisi (EAN 40 à 80 ou O₂), MN90 seulement l\'O₂ pur (paliers 6 et 3 m, durées ×2/3). « Plus prudent » compare la durée des paliers obligatoires.</p>'
     + keys.map(k => compareCard(k, pb.find(p => p.def.key === k), pm.find(p => p.def.key === k), cfg)).join('');
 }
 
 // ───────────── État / UI ─────────────
-const state = { mode: 'deep', algo: 'buhlmann', vol: 12, ppo2: 1.4, sac: 20, gas: new Set(['air', 'nitrox', 'o2']), depth: 30, time: 45 };
+const state = { mode: 'deep', algo: 'buhlmann', vol: 12, ppo2: 1.4, sac: 20, gas: new Set(['air', 'nitrox', 'poney']), depth: 30, time: 45, nxO2: null, ponO2: null };
 
 function load() {
   try {
@@ -919,7 +978,9 @@ function load() {
     if (s.vol === 12 || s.vol === 15) state.vol = s.vol;
     if ([1.3, 1.4, 1.6].includes(s.ppo2)) state.ppo2 = s.ppo2;
     if ([17, 18, 19, 20].includes(s.sac)) state.sac = s.sac;
-    if (Array.isArray(s.gas)) state.gas = new Set(s.gas.filter(g => ['air', 'nitrox', 'o2'].includes(g)));
+    if (Array.isArray(s.gas)) state.gas = new Set(s.gas.map(g => g === 'o2' ? 'poney' : g).filter(g => ['air', 'nitrox', 'poney'].includes(g)));
+    state.nxO2 = STD_NX.includes(s.nxO2) ? s.nxO2 : null;
+    state.ponO2 = STD_PON.includes(s.ponO2) ? s.ponO2 : null;
     state.depth = s.depth > 0 ? s.depth : null;
     state.time = s.time > 0 ? s.time : null;
   } catch (e) {}
@@ -938,6 +999,10 @@ function syncUi() {
       b.classList.toggle('active', g === 'gas' ? state.gas.has(b.dataset.v) : b.dataset.v === vals[g]);
     });
   });
+  $('nxRow').classList.toggle('none', !state.gas.has('nitrox'));
+  $('ponRow').classList.toggle('none', !state.gas.has('poney'));
+  $('nxO2').value = state.nxO2 || '';
+  $('ponO2').value = state.ponO2 || '';
   $('depth').value = state.depth || '';
   $('time').value = state.time || '';
 }
@@ -946,7 +1011,8 @@ function render() {
   SAC = state.sac;
   const cfg = {
     mode: state.mode, vol: state.vol, ppo2: state.ppo2, gas: state.gas,
-    depth: state.depth, tbot: state.time || null, sac: state.sac, algo: state.algo
+    depth: state.depth, tbot: state.time || null, sac: state.sac, algo: state.algo,
+    nxO2: state.nxO2, ponO2: state.ponO2
   };
   const box = $('results');
   if (!state.gas.size) {
@@ -963,7 +1029,7 @@ function render() {
   const title = cfg.tbot
     ? `${nOk} réalisable${nOk > 1 ? 's' : ''} sur ${props.length} <small>fond ${cfg.tbot}′${cfg.depth ? ' à ' + cfg.depth + ' m' : ''}</small>`
     : `${props.length} proposition${props.length > 1 ? 's' : ''} <small>temps au fond maximal</small>`;
-  box.innerHTML = `<div class="section-title">${title}</div>`
+  box.innerHTML = `<div class="section-title">${title}</div>` + mnPoneyNote(cfg)
     + props.map((p, i) => card(p, cfg, i)).join('');
 }
 
@@ -989,6 +1055,14 @@ function numInput(id, key, min, max) {
     update();
   });
 }
+function fillSelect(id, values) {
+  $(id).innerHTML = '<option value="">Auto (optimal)</option>' + values.map(v => `<option value="${v}">${v} %</option>`).join('');
+}
+function selInput(id, key) {
+  $(id).addEventListener('change', e => { state[key] = e.target.value ? Number(e.target.value) : null; update(); });
+}
+fillSelect('nxO2', STD_NX); fillSelect('ponO2', STD_PON);
+selInput('nxO2', 'nxO2'); selInput('ponO2', 'ponO2');
 numInput('depth', 'depth', 6, 60);
 numInput('time', 'time', 5, 240);
 
