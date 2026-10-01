@@ -238,9 +238,10 @@
 
   <div class="card">
     <div class="card-label">Type de plongée</div>
-    <div class="row c2" data-group="mode">
-      <button class="btn" data-v="deep"><b>Profonde</b><i>privilégier la déco</i></button>
-      <button class="btn" data-v="shallow"><b>Peu profonde</b><i>peu de palier</i></button>
+    <div class="row c3" data-group="mode">
+      <button class="btn" data-v="deep"><b>Profonde</b><i>déco privilégiée</i></button>
+      <button class="btn" data-v="shallow"><b>Peu profonde</b><i>≤ 5 min de palier</i></button>
+      <button class="btn" data-v="nodeco"><b>Sans palier</b><i>aucun palier</i></button>
     </div>
   </div>
 
@@ -275,6 +276,14 @@
         <label>Temps au fond (min)</label>
       </div>
     </div>
+  </div>
+
+  <div class="card">
+    <div class="num">
+      <input type="number" id="vres" inputmode="numeric" min="0" max="3500" placeholder="—">
+      <label>Volume d'air attendu en surface (L)</label>
+    </div>
+    <p class="note" id="vresNote"></p>
   </div>
 
   <div class="card">
@@ -313,7 +322,7 @@
 
   <p class="disclaimer">
     Outil indicatif : Bühlmann ZH-L16C (GF 40/85) ou table MN90 (nitrox par profondeur équivalente air, O₂ pur aux paliers de 6 et 3 m avec durées ×2/3 ; les autres gaz de déco ne sont pas pris en compte en MN90), temps au fond = de la sortie de surface au début de remontée, descente 20 m/min, remontée 10 m/min (15 m/min en MN90), palier de sécurité 3 min à 3 m,
-    bloc gonflé à 200 bar avec 50 bar de réserve, SNC limité à 80 % (tables NOAA).
+    bloc gonflé à 200 bar avec 50 bar de réserve (ou le volume attendu en surface saisi, complété à 3 m), SNC limité à 80 % (tables NOAA).
     Poney de déco : ppO₂ 1,6 max, taille ≤ 7 L (O₂ pur ≤ 4 L) ; avec « Auto », l'appli teste les mélanges standard et retient le plus favorable. Ne remplace ni les tables MN90,
     ni un ordinateur, ni l'analyse de vos mélanges. Vérifiez toujours le contenu de vos blocs.
   </p>
@@ -327,6 +336,7 @@ const DESC = 20, ASC = 10;          // m/min
 const FILL = 200, RESERVE = 50;     // bar
 const CNS_MAX = 80;                 // %
 const MAX_DEPTH = 60;
+const MAX_EXT = 180;              // complément max à 3 m (min)
 const MAX_BT = 240;               // temps au fond max exploré (min)
 const PH2O = 0.0627;
 const DECO_MAX_SHALLOW = 5, DECO_MAX_DEEP = 60; // min de palier obligatoire
@@ -388,7 +398,7 @@ function ceilingM(st, gf) {
   return Math.max(0, (m - 1) * 10);
 }
 // Remontée avec paliers. gases[0] = fond ; renvoie null si palier > 300 min
-function ascend(st, D, gases) {
+function ascend(st, D, gases, ext) {
   const gasAt = d => {
     let g = gases[0];
     for (const x of gases) if (x.maxD >= d && x.gas.fo2 > g.gas.fo2) g = x;
@@ -410,6 +420,7 @@ function ascend(st, D, gases) {
       advance(st, 3, 3, 3 - w, gasAt(3), 'palier');
       total = 3;
     }
+    if (d === 3 && ext > 0) advance(st, 3, 3, ext, gases[0].gas, 'comp');   // complément au volume attendu
     if (w) deco += w;
     if (total) stops.push({ d, min: total, gas: gasAt(d) });
     advance(st, d, next, (d - next) / ASC, gasAt(d), 'asc');
@@ -462,7 +473,7 @@ function mnRow(D, fo2, bt) {
   return { dt, row };
 }
 // Remontée MN90 : paliers de la table, O₂ pur aux paliers de 6 et 3 m (durée ×2/3 si total ≥ 5 min)
-function ascendMN90(st, D, gases, row) {
+function ascendMN90(st, D, gases, row, ext) {
   const gasAt = d => {
     let g = gases[0];
     for (const x of gases) if (x.maxD >= d && x.gas.fo2 > g.gas.fo2) g = x;
@@ -490,20 +501,28 @@ function ascendMN90(st, D, gases, row) {
     advance(st, d, d, m, gasAt(d), 'palier');
     stops.push({ d, min: m, gas: gasAt(d) });
   }
+  if (ext > 0) {                                            // complément au volume attendu, à 3 m
+    if (d > 3) advance(st, d, 3, (d - 3) / (first ? 15 : 6), gasAt(d), 'asc');
+    d = 3;
+    advance(st, 3, 3, ext, gases[0].gas, 'comp');
+  }
   advance(st, d, 0, d / 15, gasAt(d), 'asc');
   return { stops, deco, o2red };
 }
 
+// Volume attendu en surface (L) : saisi par l'utilisateur, sinon 50 bar de réserve
+const reserveL = cfg => cfg.vres != null ? cfg.vres : cfg.vol * RESERVE;
+
 // Vérifie les contraintes (gaz, déco, SNC) d'un profil simulé
 function assess(c, r, bottom, gases, cfg) {
-  const usable = cfg.vol * (FILL - RESERVE);
+  const usable = cfg.vol * FILL - reserveL(cfg);
   const needB = c.use[bottom.id] || 0;
   const decoIssues = [];
   for (let i = 1; i < gases.length; i++) {
     const g = gases[i].gas, L = c.use[g.id] || 0, capL = g.cap * (FILL - RESERVE);
     if (L > capL) decoIssues.push({ gas: g, L, capL });
   }
-  const decoLimit = cfg.mode === 'shallow' ? DECO_MAX_SHALLOW : DECO_MAX_DEEP;
+  const decoLimit = cfg.mode === 'nodeco' ? 0 : cfg.mode === 'shallow' ? DECO_MAX_SHALLOW : DECO_MAX_DEEP;
   const flags = { gas: needB <= usable, decoGas: !decoIssues.length, deco: r.deco <= decoLimit, cns: c.cns <= CNS_MAX };
   return { usable, needB, decoIssues, decoLimit, flags, ok: flags.gas && flags.decoGas && flags.deco && flags.cns };
 }
@@ -511,19 +530,32 @@ const FAIL_TXT = { gas: 'gaz du bloc', decoGas: 'gaz de déco', deco: 'durée de
 const firstFail = fl => ['gas', 'decoGas', 'deco', 'cns'].find(k => !fl[k]) || null;
 
 // Profil complet pour un temps au fond donné (surface → début de remontée)
-function simulate(bottom, gases, D, bt, cfg) {
+function simulate(bottom, gases, D, bt, cfg, fill) {
   const tDesc = D / DESC;
   if (bt < tDesc - 1e-9) return { err: 'desc', D, bt };
   const mn = cfg.algo === 'mn90' ? mnRow(D, bottom.fo2, bt) : null;
   if (mn && mn.err) return { err: 'table', D, bt, dt: mn.dt, max: mn.max };
-  const st = newState();
-  advance(st, 0, D, tDesc, bottom, 'desc');
-  advance(st, D, D, bt - tDesc, bottom, 'fond');
-  const r = mn ? ascendMN90(st, D, gases, mn.row) : ascend(st, D, gases);
+  const run = ext => {
+    const st = newState();
+    advance(st, 0, D, tDesc, bottom, 'desc');
+    advance(st, D, D, bt - tDesc, bottom, 'fond');
+    const r = mn ? ascendMN90(st, D, gases, mn.row, ext) : ascend(st, D, gases, ext);
+    return { st, r };
+  };
+  let { st, r } = run(0);
   if (!r) return { err: 'deco', D, bt };
+  let a = assess(st, r, bottom, gases, cfg);
+  const needB0 = a.needB;
+  let ext = 0;
+  if (fill && cfg.vres != null && a.flags.gas) {            // on complète à 3 m jusqu'au volume attendu
+    ext = Math.min(MAX_EXT, Math.floor((a.usable - a.needB) / (SAC * 1.3)));
+    if (ext > 0) {
+      ({ st, r } = run(ext));
+      a = assess(st, r, bottom, gases, cfg);
+    }
+  }
   return Object.assign({ D, bt, rt: st.time, cns: st.cns, use: st.use, log: st.log, stops: r.stops, deco: r.deco,
-    mn: mn ? { dt: mn.dt, t: mn.row[0], gps: mn.row[6], o2red: r.o2red } : null },
-    assess(st, r, bottom, gases, cfg));
+    ext, needB0, mn: mn ? { dt: mn.dt, t: mn.row[0], gps: mn.row[6], o2red: r.o2red } : null }, a);
 }
 
 // Plus grand temps au fond (minutes entières) respectant toutes les contraintes
@@ -596,12 +628,12 @@ const usesDeco = s => s.gases.slice(1).some(x => (s.use[x.gas.id] || 0) > 0);
 function evalCombo(def, bottom, gases, D0, cfg, withScan) {
   let sol, scan = null;
   if (cfg.tbot) {
-    sol = simulate(bottom, gases, D0, cfg.tbot, cfg);
+    sol = simulate(bottom, gases, D0, cfg.tbot, cfg, true);
     if (withScan) scan = scanMax(bottom, gases, D0, cfg);
   } else {                                       // temps libre : on maximise
     for (let D = D0; D >= 6; D = (D === D0 ? Math.floor((D0 - 1) / 3) * 3 : D - 3)) {
       scan = scanMax(bottom, gases, D, cfg);
-      if (scan.bt != null) { sol = simulate(bottom, gases, D, scan.bt, cfg); break; }
+      if (scan.bt != null) { sol = simulate(bottom, gases, D, scan.bt, cfg, true); break; }
     }
     if (!sol) return null;
   }
@@ -619,7 +651,7 @@ function better(a, b, cfg) {
     if (!!a.err !== !!b.err) return !a.err;
     if (a.err) return false;
     if (a.depthOk !== b.depthOk) return a.depthOk;
-    return a.needB !== b.needB ? a.needB < b.needB : a.cns < b.cns;
+    return a.needB0 !== b.needB0 ? a.needB0 < b.needB0 : a.cns < b.cns;
   }
   return a.bt !== b.bt ? a.bt > b.bt : a.cns < b.cns;
 }
@@ -650,10 +682,79 @@ function buildProposals(cfg, withScan) {
     if (def.dupOf && (sol.err || !usesDeco(sol))) continue;   // gaz de déco inutile : même profil
     out.push(sol);
   }
-  if (cfg.tbot) out.sort((a, b) => (b.feasible - a.feasible) || ((b.usable - b.needB) - (a.usable - a.needB)) || 0);
+  if (cfg.tbot) out.sort((a, b) => (b.feasible - a.feasible) || ((b.usable - b.needB0) - (a.usable - a.needB0)) || 0);
   else out.sort((a, b) => b.bt - a.bt || a.cns - b.cns);
   return out;
 }
+
+// ───────────── Supprimer les paliers ─────────────
+const MODE_TXT = { deep: 'profonde', shallow: 'peu profonde', nodeco: 'sans palier' };
+
+// Profil à deux niveaux : t1 min (depuis la surface) à D, remontée à L2, séjour jusqu'à T, remontée finale
+function simulateML(bottom, gases, D, t1, L2, T, cfg) {
+  const tDesc = D / DESC, tUp = (D - L2) / ASC, t2 = T - t1 - tUp;
+  if (t1 < tDesc - 1e-9 || t2 < 0) return null;
+  const st = newState();
+  advance(st, 0, D, tDesc, bottom, 'desc');
+  advance(st, D, D, t1 - tDesc, bottom, 'fond');
+  advance(st, D, L2, tUp, bottom, 'asc');
+  advance(st, L2, L2, t2, bottom, 'fond');
+  const r = ascend(st, L2, gases, 0);
+  if (!r) return null;
+  return Object.assign({ t1, t2, L2 }, assess(st, r, bottom, gases, cfg));
+}
+
+// Manières de faire disparaître (ou réduire sous la limite) les paliers d'un profil
+function decoRemovalTips(sol, cfg) {
+  const tips = [];
+  const { D, bt: T, bottom, gases } = sol;
+  const lim = sol.decoLimit;
+  const noDeco = lim === 0 ? 'sans palier' : `avec ≤ ${lim} min de palier`;
+  // 1. temps au fond maximal à cette profondeur
+  let ndl = null;
+  for (let t = Math.ceil(D / DESC - 1e-9); t <= MAX_BT; t++) {
+    const s = simulate(bottom, gases, D, t, cfg, false);
+    if (s.err || !s.flags.deco) break;
+    ndl = t;
+  }
+  tips.push(ndl != null ? `Limiter le temps au fond à ${ndl} min à ${D} m (${noDeco})`
+                        : `À ${D} m, même un temps au fond minimal impose des paliers`);
+  // 2. profondeur maximale pour le temps visé
+  for (let d = D - 1; d >= 6; d--) {
+    const s = simulate(bottom, gases, d, T, cfg, false);
+    if (!s.err && s.flags.deco) { tips.push(`Ne pas dépasser ${d} m pendant ${T} min`); break; }
+  }
+  // 3. nitrox plus riche (équivalent air plus faible)
+  const lim2 = cfg.ppo2 / (D / 10 + 1);
+  const rich = STD_NX.filter(p => p / 100 <= lim2 + 1e-9 && p / 100 > bottom.fo2 + 0.005).sort((a, b) => b - a)[0];
+  if (rich) {
+    const g = mkGas(rich / 100, 0);
+    const s = simulate(g, [{ gas: g, maxD: Infinity }], D, T, cfg, false);
+    if (!s.err && s.deco < sol.deco)
+      tips.push(s.flags.deco ? `Respirer ${g.name} au fond : plus de palier à ${D} m pendant ${T} min`
+                             : `Respirer ${g.name} au fond : paliers ${sol.deco} → ${s.deco} min`);
+  }
+  // 4. profil multi-niveaux (début profond, puis remontée vers une zone moins profonde)
+  const blt = { gas: bottom, maxD: Infinity };
+  const cb = Object.assign({}, cfg, { algo: 'buhlmann' });
+  const L2s = [...new Set([0.8, 0.65, 0.5].map(f => Math.floor(D * f / 3) * 3))].filter(l => l >= 6 && l <= D - 3);
+  const ml = [];
+  for (const L2 of L2s) {
+    let best = null;
+    for (let t1 = Math.ceil(D / DESC - 1e-9); t1 <= T; t1++) {
+      const s = simulateML(bottom, [blt], D, t1, L2, T, cb);
+      if (!s) break;
+      if (!s.flags.deco || !s.flags.cns) break;
+      best = s;
+    }
+    if (best) ml.push(`${r0(best.t1)} min à ${D} m, puis ${r0(best.t2)} min à ${L2} m${best.flags.gas ? '' : ' (gaz insuffisant)'}`);
+  }
+  if (ml.length) tips.push(`Plongée multi-niveaux (${T} min au total, ${noDeco}${cfg.algo === 'mn90' ? ', calcul Bühlmann : MN90 n\'admet pas le multi-niveaux' : ''}) : ${ml.join(' · ')}`);
+  return tips;
+}
+const needsTips = sol => !sol.err && !sol.flags.deco;
+const tipsHtml = (sol, cfg, label) => needsTips(sol)
+  ? `<div class="fix"><b>${label || 'Pour supprimer les paliers'} :</b><ul>${decoRemovalTips(sol, cfg).map(t => `<li>${t}</li>`).join('')}</ul></div>` : '';
 
 // ───────────── Aide : que modifier pour réussir ? ─────────────
 function withSac(sac, fn) { const old = SAC; SAC = sac; try { return fn(); } finally { SAC = old; } }
@@ -681,12 +782,15 @@ function suggestions(sol, cfg) {
       if (!s.err && s.ok) { out.push(`Profondeur ≤ ${D} m`); break; }
     }
   }
+  if (cfg.vres != null && !sol.err && !sol.flags.gas && cfg.vol * FILL - sol.needB >= 0)
+    out.push(`Volume attendu en surface ≤ ${Math.floor(cfg.vol * FILL - sol.needB)} L`);
   const cur = feasibleKeys(cfg);
   const tries = [];
   if (cfg.vol < 15) tries.push({ label: 'Bloc de 15 L', c: { vol: 15 } });
   for (const s of [19, 18, 17]) if (s < cfg.sac) tries.push({ label: `Conso ≤ ${s} L/min`, c: { sac: s } });
   for (const p of [1.4, 1.6]) if (p > cfg.ppo2) tries.push({ label: `Ppo2 ${String(p).replace('.', ',')}`, c: { ppo2: p } });
-  if (cfg.mode === 'shallow') tries.push({ label: 'Type : plongée profonde', c: { mode: 'deep' } });
+  if (cfg.mode === 'nodeco') tries.push({ label: 'Type : peu profonde (≤ 5 min de palier)', c: { mode: 'shallow' } });
+  if (cfg.mode !== 'deep') tries.push({ label: 'Type : plongée profonde', c: { mode: 'deep' } });
   if (!cfg.gas.has('nitrox')) tries.push({ label: 'Ajouter du Nitrox', add: true, c: { gas: new Set([...cfg.gas, 'nitrox']) } });
   if (!cfg.gas.has('poney')) tries.push({ label: 'Ajouter un poney', add: true, c: { gas: new Set([...cfg.gas, 'poney']) } });
   if (cfg.nxO2 && cfg.gas.has('nitrox')) tries.push({ label: 'Taux d\'O₂ du nitrox : Auto (optimal)', c: { nxO2: null } });
@@ -739,7 +843,8 @@ function reasons(sol, cfg) {
   if (sol.err === 'table') return [sol.max ? `hors table MN90 : ${sol.max} min maximum à ${sol.dt} m (profondeur équivalente)` : 'hors table MN90 : profondeur équivalente > 65 m'];
   if (!sol.flags.gas) r.push(`gaz du bloc insuffisant : il manque ${fmt(sol.needB - sol.usable)} L`);
   if (!sol.flags.decoGas) r.push(sol.decoIssues.map(i => `${i.gas.name} : ${fmt(i.L)} L > ${fmt(i.capL)} L (poney ${i.gas.cap} L max)`).join(' ; '));
-  if (!sol.flags.deco) r.push(`paliers de ${sol.deco} min > ${sol.decoLimit} min autorisées en plongée ${cfg.mode === 'shallow' ? 'peu profonde' : 'profonde'}`);
+  if (!sol.flags.deco) r.push(cfg.mode === 'nodeco' ? `paliers de ${sol.deco} min alors qu'une plongée sans palier est demandée`
+    : `paliers de ${sol.deco} min > ${sol.decoLimit} min autorisées en plongée ${MODE_TXT[cfg.mode]}`);
   if (!sol.flags.cns) r.push(`SNC ${r0(sol.cns)} % > ${CNS_MAX} %`);
   if (!sol.depthOk) r.push(`profondeur limitée à ${sol.D} m par le mélange (Ppo2 ${String(cfg.ppo2).replace('.', ',')})`);
   return r;
@@ -748,7 +853,7 @@ function reasons(sol, cfg) {
 function usageBreakdown(sol) {
   const m = {};
   for (const e of sol.log) {
-    const o = m[e.gas.id] || (m[e.gas.id] = { gas: e.gas, desc: 0, fond: 0, asc: 0, palier: 0, tot: 0 });
+    const o = m[e.gas.id] || (m[e.gas.id] = { gas: e.gas, desc: 0, fond: 0, asc: 0, palier: 0, comp: 0, tot: 0 });
     o[e.phase] += e.L; o.tot += e.L;
   }
   return Object.values(m);
@@ -788,8 +893,8 @@ function card(sol, cfg, idx) {
   const legend = [g0].concat(usedDeco.map(x => x.gas)).map(g => `<span style="--c:${gasColor(g)}">${g.name}</span>`).join('');
 
   const bd = usageBreakdown(sol);
-  const b0 = bd.find(o => o.gas.id === g0.id) || { desc: 0, fond: 0, asc: 0, palier: 0, tot: 0 };
-  const gasLines = [`${g0.name} : descente ${fmt(b0.desc)} · fond ${fmt(b0.fond)} · remontée ${fmt(b0.asc)} · paliers ${fmt(b0.palier)}`]
+  const b0 = bd.find(o => o.gas.id === g0.id) || { desc: 0, fond: 0, asc: 0, palier: 0, comp: 0, tot: 0 };
+  const gasLines = [`${g0.name} : descente ${fmt(b0.desc)} · fond ${fmt(b0.fond)} · remontée ${fmt(b0.asc)} · paliers ${fmt(b0.palier)}${b0.comp ? ` · complément ${fmt(b0.comp)}` : ''}`]
     .concat(bd.filter(o => o.gas.id !== g0.id).map(o => {
       const bad = sol.decoIssues.some(i => i.gas.id === o.gas.id);
       const need = Math.ceil(o.tot / (FILL - RESERVE) * 2) / 2;
@@ -817,7 +922,7 @@ function card(sol, cfg, idx) {
 
   return `<div class="prop">
     ${head(!cfg.tbot && idx === 0 ? 'Plus long' : (cfg.tbot && verdictOk ? 'Possible' : ''))}
-    ${verdict}${fix}
+    ${verdict}${fix}${tipsHtml(sol, cfg)}
     ${chartSvg(sol)}
     <div class="legend">${legend}</div>
     <div class="tiles">
@@ -840,7 +945,7 @@ function card(sol, cfg, idx) {
       <div class="tile">
         <div class="lbl">Durée totale</div>
         <div class="val">${r0(sol.rt)}<small> min</small></div>
-        <div class="det">remontée et paliers inclus</div>
+        <div class="det">${sol.ext ? `dont +${sol.ext} min à 3 m pour atteindre le volume attendu` : 'remontée et paliers inclus'}</div>
       </div>
       <div class="tile">
         <div class="lbl">SNC</div>
@@ -851,11 +956,12 @@ function card(sol, cfg, idx) {
         <div class="lbl">Gaz nécessaire · bloc ${cfg.vol} L</div>
         <div class="val ${sol.flags.gas ? 'ok' : 'bad'}">${fmt(sol.needB)}<small> L requis / ${fmt(sol.usable)} L dispo</small></div>
         <div class="det">${gasLines.join('<br>')}</div>
-        <div class="det" style="margin-top:3px">${barLeft >= 0 ? `Reste ${r0(barLeft)} bar (réserve ${RESERVE} bar = ${fmt(cfg.vol * RESERVE)} L)` : `Il manque ${r0(-barLeft)} bar au-delà d'un bloc plein`} · ${r0(perMin)} L/min à ${sol.D} m</div>
+        <div class="det" style="margin-top:3px">${barLeft >= 0 ? `Reste ${r0(barLeft)} bar en surface (attendu : ${fmt(reserveL(cfg))} L = ${r0(reserveL(cfg) / cfg.vol)} bar)` : `Il manque ${r0(-barLeft)} bar au-delà d'un bloc plein`} · ${r0(perMin)} L/min à ${sol.D} m</div>
       </div>
       <div class="tile wide">
         <div class="lbl">Paliers</div>
         <div class="stops">${stopsHtml}</div>
+        ${sol.ext ? `<div class="det" style="margin-top:4px">Complément : ${sol.ext} min à 3 m sur ${g0.name} (volume attendu ${fmt(reserveL(cfg))} L)</div>` : ''}
         ${sol.mn ? `<div class="det" style="margin-top:4px">Table MN90 lue à ${sol.mn.dt} m${sol.mn.dt !== sol.D ? ' (équivalent air)' : ''} · ${sol.mn.t} min · GPS ${sol.mn.gps === '*' ? '— (successive interdite)' : sol.mn.gps}${sol.mn.o2red ? ' · paliers O₂ réduits (×2/3)' : ''}</div>` : ''}
       </div>
     </div>
@@ -928,7 +1034,7 @@ function compareCard(key, B, M, cfg) {
   // Synthèse : lequel est le plus prudent ?
   let sum = '';
   if (B && M && !B.err && !M.err) {
-    const dd = M.deco - B.deco, dr = M.rt - B.rt, dg = M.needB - B.needB;
+    const dd = M.deco - B.deco, dr = M.rt - B.rt, dg = M.needB0 - B.needB0;
     const sg = v => (v > 0 ? '+' : v < 0 ? '−' : '±') + Math.abs(Math.round(v));
     const who = dd > 0 ? 'MN90 est plus prudent' : dd < 0 ? 'Bühlmann est plus prudent' : 'paliers équivalents';
     sum = `<div class="verdict v-neutral"><b>${who}</b> · MN90 vs Bühlmann : paliers ${sg(dd)} min, durée totale ${sg(dr)} min, gaz du bloc ${sg(dg)} L, SNC ${sg(M.cns - B.cns)} %</div>`;
@@ -939,6 +1045,8 @@ function compareCard(key, B, M, cfg) {
       .map(([n, s, a]) => `<li><b>${n}</b> : ${suggestions(s, Object.assign({}, cfg, { algo: a })).join(' · ') || 'combiner plusieurs réglages'}</li>`);
     if (parts.length) fix = `<div class="fix"><b>Pour y arriver, modifier :</b><ul>${parts.join('')}</ul></div>`;
   }
+  fix += tipsHtml(B || { err: true }, Object.assign({}, cfg, { algo: 'buhlmann' }), 'Bühlmann · pour supprimer les paliers')
+       + tipsHtml(M || { err: true }, Object.assign({}, cfg, { algo: 'mn90' }), 'MN90 · pour supprimer les paliers');
   const s0 = (B && !B.err) ? B : (M && !M.err) ? M : null;
   return `<div class="prop">
     <div class="prop-head"><div><div class="prop-title">${CMP_TITLE[key]}</div>
@@ -967,14 +1075,15 @@ function renderCompare(cfg) {
 }
 
 // ───────────── État / UI ─────────────
-const state = { mode: 'deep', algo: 'buhlmann', vol: 12, ppo2: 1.4, sac: 20, gas: new Set(['air', 'nitrox', 'poney']), depth: 30, time: 45, nxO2: null, ponO2: null };
+const state = { mode: 'deep', algo: 'buhlmann', vol: 12, ppo2: 1.4, sac: 20, gas: new Set(['air', 'nitrox', 'poney']), depth: 30, time: 45, nxO2: null, ponO2: null, vres: null };
 
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem('nitroxPlanner') || 'null');
     if (!s) return;
     if (['buhlmann', 'mn90', 'compare'].includes(s.algo)) state.algo = s.algo;
-    if (s.mode === 'deep' || s.mode === 'shallow') state.mode = s.mode;
+    if (['deep', 'shallow', 'nodeco'].includes(s.mode)) state.mode = s.mode;
+    state.vres = s.vres > 0 ? s.vres : null;
     if (s.vol === 12 || s.vol === 15) state.vol = s.vol;
     if ([1.3, 1.4, 1.6].includes(s.ppo2)) state.ppo2 = s.ppo2;
     if ([17, 18, 19, 20].includes(s.sac)) state.sac = s.sac;
@@ -991,6 +1100,13 @@ function save() {
   } catch (e) {}
 }
 
+function updateVresNote() {
+  $('vres').placeholder = state.vol * RESERVE;
+  $('vresNote').textContent = state.vres
+    ? `= ${Math.round(state.vres / state.vol)} bar dans un bloc de ${state.vol} L. Si la plongée laisse plus de gaz, elle est complétée à 3 m jusqu'à ce volume.`
+    : `Vide : réserve de ${RESERVE} bar (${state.vol * RESERVE} L), sans complément. Renseigne le volume attendu par le DP pour compléter la durée de plongée.`;
+}
+
 function syncUi() {
   const vals = { mode: state.mode, algo: state.algo, vol: String(state.vol), ppo2: String(state.ppo2), sac: String(state.sac) };
   document.querySelectorAll('[data-group]').forEach(grp => {
@@ -1003,6 +1119,8 @@ function syncUi() {
   $('ponRow').classList.toggle('none', !state.gas.has('poney'));
   $('nxO2').value = state.nxO2 || '';
   $('ponO2').value = state.ponO2 || '';
+  $('vres').value = state.vres || '';
+  updateVresNote();
   $('depth').value = state.depth || '';
   $('time').value = state.time || '';
 }
@@ -1012,7 +1130,7 @@ function render() {
   const cfg = {
     mode: state.mode, vol: state.vol, ppo2: state.ppo2, gas: state.gas,
     depth: state.depth, tbot: state.time || null, sac: state.sac, algo: state.algo,
-    nxO2: state.nxO2, ponO2: state.ponO2
+    nxO2: state.nxO2, ponO2: state.ponO2, vres: state.vres
   };
   const box = $('results');
   if (!state.gas.size) {
@@ -1065,6 +1183,8 @@ fillSelect('nxO2', STD_NX); fillSelect('ponO2', STD_PON);
 selInput('nxO2', 'nxO2'); selInput('ponO2', 'ponO2');
 numInput('depth', 'depth', 6, 60);
 numInput('time', 'time', 5, 240);
+numInput('vres', 'vres', 1, 3500);
+$('vres').addEventListener('input', updateVresNote);
 
 load();
 syncUi();
