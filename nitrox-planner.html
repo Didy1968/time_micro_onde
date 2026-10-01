@@ -148,6 +148,9 @@
   }
   .num input::-webkit-outer-spin-button,
   .num input::-webkit-inner-spin-button { -webkit-appearance: none; }
+  .num input::placeholder { font-size: 1.05rem; color: var(--muted); opacity: .8; }
+  [data-group="mode"] .btn b { font-family: 'DM Sans', sans-serif; font-size: .82rem; font-weight: 500; white-space: nowrap; }
+  [data-group="mode"] .btn i { white-space: nowrap; font-size: .56rem; }
   .num input:focus { border-color: var(--amber); background: var(--warm-white); }
   .num label { font-size: 0.65rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 
@@ -284,7 +287,7 @@
   <div class="card">
     <div class="row c2">
       <div class="num">
-        <input type="number" id="dend" inputmode="numeric" min="3" max="60" placeholder="= prof. max">
+        <input type="number" id="dend" inputmode="numeric" min="3" max="60" placeholder="= max">
         <label>Fin d'objectif (m)</label>
       </div>
       <div class="num">
