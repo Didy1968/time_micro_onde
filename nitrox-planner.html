@@ -213,6 +213,9 @@
   .cmp > div { padding: 4px 0; border-top: 1px solid rgba(255,255,255,.07); font-family: 'DM Mono', monospace; }
   .cmp .cl { font-family: 'DM Sans', sans-serif; font-size: .6rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding-top: 6px; }
   .cmp .ch { font-family: 'DM Sans', sans-serif; font-size: .65rem; font-weight: 500; letter-spacing: .1em; text-transform: uppercase; border-top: none; }
+  .reco { margin-top: 6px; padding: 7px 10px; border-radius: 10px; background: rgba(102,201,141,.12); font-size: .74rem; color: #8fd9ab; line-height: 1.4; }
+  .reco ul { margin: 3px 0 0 16px; }
+  .reco b { color: #b6ecc9; font-weight: 500; }
   .warnings { margin-top: 8px; font-size: .68rem; color: #f0b04a; line-height: 1.4; }
 
   .empty { margin: 0 20px; font-size: .9rem; color: var(--muted); font-style: italic; font-weight: 300; }
@@ -398,7 +401,9 @@ function ceilingM(st, gf) {
   return Math.max(0, (m - 1) * 10);
 }
 // Remontée avec paliers. gases[0] = fond ; renvoie null si palier > 300 min
-function ascend(st, D, gases, ext) {
+// fin = { top, t, plus, single } : séjour minimal de t min (t+1 aux `plus` niveaux les moins profonds)
+// à chaque niveau de 3 m ≤ top (ou au seul niveau top si single), en plus des paliers obligatoires
+function ascend(st, D, gases, ext, fin) {
   const gasAt = d => {
     let g = gases[0];
     for (const x of gases) if (x.maxD >= d && x.gas.fo2 > g.gas.fo2) g = x;
@@ -415,14 +420,18 @@ function ascend(st, D, gases, ext) {
       advance(st, d, d, 1, gasAt(d), 'palier');
       if (++w > 300) return null;
     }
-    let total = w;
+    let total = w, extraHere = false;
     if (d === 3 && D >= 10 && w < 3) {           // palier de sécurité
       advance(st, 3, 3, 3 - w, gasAt(3), 'palier');
       total = 3;
     }
-    if (d === 3 && ext > 0) advance(st, 3, 3, ext, gases[0].gas, 'comp');   // complément jusqu'à la pression finale
+    if (fin && (fin.single ? d === fin.top : d <= fin.top)) {              // remontée recommandée : séjour minimal par niveau
+      const want = fin.t + (!fin.single && d <= 3 * (fin.plus || 0) ? 1 : 0);
+      if (total < want) { advance(st, d, d, want - total, gases[0].gas, 'comp'); extraHere = true; total = want; }
+    }
+    if (d === 3 && ext > 0) { advance(st, 3, 3, ext, gases[0].gas, 'comp'); extraHere = true; total += ext; }   // reliquat à 3 m
     if (w) deco += w;
-    if (total) stops.push({ d, min: total, gas: gasAt(d) });
+    if (total) stops.push({ d, min: total, gas: (extraHere && total > 0 && w === 0 && !(d === 3 && D >= 10)) ? gases[0].gas : gasAt(d) });
     advance(st, d, next, (d - next) / ASC, gasAt(d), 'asc');
     d = next;
   }
@@ -535,27 +544,55 @@ function simulate(bottom, gases, D, bt, cfg, fill) {
   if (bt < tDesc - 1e-9) return { err: 'desc', D, bt };
   const mn = cfg.algo === 'mn90' ? mnRow(D, bottom.fo2, bt) : null;
   if (mn && mn.err) return { err: 'table', D, bt, dt: mn.dt, max: mn.max };
-  const run = ext => {
+  const run = (ext, fin) => {
     const st = newState();
     advance(st, 0, D, tDesc, bottom, 'desc');
     advance(st, D, D, bt - tDesc, bottom, 'fond');
-    const r = mn ? ascendMN90(st, D, gases, mn.row, ext) : ascend(st, D, gases, ext);
+    const r = mn ? ascendMN90(st, D, gases, mn.row, ext) : ascend(st, D, gases, ext, fin);
     return { st, r };
   };
-  let { st, r } = run(0);
+  let { st, r } = run(0, null);
   if (!r) return { err: 'deco', D, bt };
   let a = assess(st, r, bottom, gases, cfg);
-  const needB0 = a.needB;
-  let ext = 0;
-  if (fill && cfg.pfin != null && a.flags.gas) {            // on complète à 3 m jusqu'à la pression finale
-    ext = Math.min(MAX_EXT, Math.floor((a.usable - a.needB) / (SAC * 1.3)));
-    if (ext > 0) {
-      ({ st, r } = run(ext));
+  const needB0 = a.needB, deco0 = r.deco;
+  let ext = 0, fin = null, alt = null;
+  if (fill && cfg.pfin != null && a.flags.gas) {            // on complète jusqu'à la pression finale demandée
+    const okRun = (e, f) => {
+      const x = run(e, f);
+      if (!x.r) return null;
+      const ax = assess(x.st, x.r, bottom, gases, cfg);
+      return ax.flags.gas && ax.flags.cns && ax.flags.decoGas && x.r.deco <= deco0 ? Object.assign(x, { a: ax }) : null;
+    };
+    if (!mn) {
+      // plus grand séjour t (min) par niveau, pour une remontée qui commence à `top`, sans palier supplémentaire
+      const bestT = (top, single) => {
+        let lo = 0, hi = 60;
+        while (lo < hi) { const mid = Math.ceil((lo + hi) / 2); if (okRun(0, { top, t: mid, single })) lo = mid; else hi = mid - 1; }
+        return lo;
+      };
+      for (let top = Math.floor((D - 1) / 3) * 3; top >= 3 && !fin; top -= 3) {   // niveau de départ le plus profond possible
+        const t = bestT(top, false);
+        if (t >= 2) {
+          let plus = 0;
+          for (let n = 1; n <= top / 3; n++) { if (okRun(0, { top, t, plus: n })) plus = n; else break; }
+          fin = { top, t, plus };
+        }
+      }
+      for (let top = Math.floor((D - 1) / 3) * 3; top >= 6 && !alt; top -= 3) {   // alternative : un seul niveau
+        const t = bestT(top, true);
+        if (t >= 5) alt = { d: top, t };
+      }
+    }
+    const x0 = fin ? run(0, fin) : { st, r };
+    const a0 = assess(x0.st, x0.r, bottom, gases, cfg);
+    ext = Math.min(MAX_EXT, Math.max(0, Math.floor((a0.usable - a0.needB) / (SAC * 1.3))));
+    if (fin || ext > 0) {
+      ({ st, r } = run(ext, fin));
       a = assess(st, r, bottom, gases, cfg);
     }
   }
   return Object.assign({ D, bt, rt: st.time, cns: st.cns, use: st.use, log: st.log, stops: r.stops, deco: r.deco,
-    ext, needB0, mn: mn ? { dt: mn.dt, t: mn.row[0], gps: mn.row[6], o2red: r.o2red } : null }, a);
+    ext, fin, alt, needB0, mn: mn ? { dt: mn.dt, t: mn.row[0], gps: mn.row[6], o2red: r.o2red } : null }, a);
 }
 
 // Plus grand temps au fond (minutes entières) respectant toutes les contraintes
@@ -628,12 +665,12 @@ const usesDeco = s => s.gases.slice(1).some(x => (s.use[x.gas.id] || 0) > 0);
 function evalCombo(def, bottom, gases, D0, cfg, withScan) {
   let sol, scan = null;
   if (cfg.tbot) {
-    sol = simulate(bottom, gases, D0, cfg.tbot, cfg, true);
+    sol = simulate(bottom, gases, D0, cfg.tbot, cfg, false);
     if (withScan) scan = scanMax(bottom, gases, D0, cfg);
   } else {                                       // temps libre : on maximise
     for (let D = D0; D >= 6; D = (D === D0 ? Math.floor((D0 - 1) / 3) * 3 : D - 3)) {
       scan = scanMax(bottom, gases, D, cfg);
-      if (scan.bt != null) { sol = simulate(bottom, gases, D, scan.bt, cfg, true); break; }
+      if (scan.bt != null) { sol = simulate(bottom, gases, D, scan.bt, cfg, false); break; }
     }
     if (!sol) return null;
   }
@@ -669,6 +706,10 @@ function evalDef(def, cfg, withScan) {
   }
   if (!best) return null;
   if (withScan && cfg.tbot && !best.scan) best.scan = scanMax(best.bottom, best.gases, best.D, cfg);
+  if (withScan && cfg.pfin != null && !best.err && best.flags.gas) {          // fin de plongée recommandée
+    const f = simulate(best.bottom, best.gases, best.D, best.bt, cfg, true);
+    if (!f.err) { Object.assign(best, f); best.feasible = best.ok && best.depthOk; }
+  }
   best.autoB = def.bottomOpts.length > 1;
   best.autoD = def.decoOpts.length > 1;
   return best;
@@ -752,6 +793,24 @@ function decoRemovalTips(sol, cfg) {
   if (ml.length) tips.push(`Plongée multi-niveaux (${T} min au total, ${noDeco}${cfg.algo === 'mn90' ? ', calcul Bühlmann : MN90 n\'admet pas le multi-niveaux' : ''}) : ${ml.join(' · ')}`);
   return tips;
 }
+// Fin de plongée recommandée : comment consommer le gaz restant jusqu'à la pression finale demandée
+const extraMin = sol => sol.log.filter(e => e.phase === 'comp').reduce((a, e) => a + e.dur, 0);
+function finishHtml(sol, cfg) {
+  if (cfg.pfin == null || sol.err || !(sol.fin || sol.ext || sol.alt)) return '';
+  const bar = r0(FILL - sol.needB / cfg.vol), extra = r0(extraMin(sol));
+  const li = [];
+  if (sol.fin) {
+    const f = sol.fin;
+    li.push(`Après ${r0(sol.bt)} min à ${sol.D} m : <b>remontée lente par paliers de 3 m</b> de ${f.top} m à 3 m, ${f.t}${f.plus ? '–' + (f.t + 1) : ''} min par niveau (+${extra} min), sans palier supplémentaire. Surface avec ≈ ${bar} bar (demandé : ${cfg.pfin}).`);
+  } else if (sol.ext) {
+    li.push(cfg.algo === 'mn90'
+      ? `La table MN90 n'admet pas de remontée progressive : complément de ${sol.ext} min à 3 m (la méthode Bühlmann propose une remontée par niveaux).`
+      : `Aucune remontée par niveaux possible sans palier supplémentaire : complément de ${sol.ext} min à 3 m.`);
+  }
+  if (sol.alt) li.push(`Variante : rester vers <b>${sol.alt.d} m</b> pendant ${sol.alt.t} min (zone la plus intéressante possible), puis remonter normalement.`);
+  return `<div class="reco"><b>Suite de la plongée recommandée :</b><ul>${li.map(t => `<li>${t}</li>`).join('')}</ul></div>`;
+}
+
 const needsTips = sol => !sol.err && !sol.flags.deco;
 const tipsHtml = (sol, cfg, label) => needsTips(sol)
   ? `<div class="fix"><b>${label || 'Pour supprimer les paliers'} :</b><ul>${decoRemovalTips(sol, cfg).map(t => `<li>${t}</li>`).join('')}</ul></div>` : '';
@@ -922,7 +981,7 @@ function card(sol, cfg, idx) {
 
   return `<div class="prop">
     ${head(!cfg.tbot && idx === 0 ? 'Plus long' : (cfg.tbot && verdictOk ? 'Possible' : ''))}
-    ${verdict}${fix}${tipsHtml(sol, cfg)}
+    ${verdict}${fix}${tipsHtml(sol, cfg)}${finishHtml(sol, cfg)}
     ${chartSvg(sol)}
     <div class="legend">${legend}</div>
     <div class="tiles">
@@ -945,7 +1004,7 @@ function card(sol, cfg, idx) {
       <div class="tile">
         <div class="lbl">Durée totale</div>
         <div class="val">${r0(sol.rt)}<small> min</small></div>
-        <div class="det">${sol.ext ? `dont +${sol.ext} min à 3 m pour atteindre la pression finale` : 'remontée et paliers inclus'}</div>
+        <div class="det">${extraMin(sol) > 0 ? `dont +${r0(extraMin(sol))} min de remontée lente pour atteindre la pression finale` : 'remontée et paliers inclus'}</div>
       </div>
       <div class="tile">
         <div class="lbl">SNC</div>
@@ -959,9 +1018,9 @@ function card(sol, cfg, idx) {
         <div class="det" style="margin-top:3px">${barLeft >= 0 ? `Reste ${r0(barLeft)} bar en surface (demandé : ${r0(reserveL(cfg) / cfg.vol)} bar = ${fmt(reserveL(cfg))} L)` : `Il manque ${r0(-barLeft)} bar au-delà d'un bloc plein`} · ${r0(perMin)} L/min à ${sol.D} m</div>
       </div>
       <div class="tile wide">
-        <div class="lbl">Paliers</div>
+        <div class="lbl">${sol.fin ? 'Remontée et paliers' : 'Paliers'}</div>
         <div class="stops">${stopsHtml}</div>
-        ${sol.ext ? `<div class="det" style="margin-top:4px">Complément : ${sol.ext} min à 3 m sur ${g0.name} (pression finale demandée : ${r0(reserveL(cfg) / cfg.vol)} bar)</div>` : ''}
+        ${sol.fin && sol.ext ? `<div class="det" style="margin-top:4px">dont reliquat : ${sol.ext} min à 3 m</div>` : ''}
         ${sol.mn ? `<div class="det" style="margin-top:4px">Table MN90 lue à ${sol.mn.dt} m${sol.mn.dt !== sol.D ? ' (équivalent air)' : ''} · ${sol.mn.t} min · GPS ${sol.mn.gps === '*' ? '— (successive interdite)' : sol.mn.gps}${sol.mn.o2red ? ' · paliers O₂ réduits (×2/3)' : ''}</div>` : ''}
       </div>
     </div>
@@ -1046,7 +1105,9 @@ function compareCard(key, B, M, cfg) {
     if (parts.length) fix = `<div class="fix"><b>Pour y arriver, modifier :</b><ul>${parts.join('')}</ul></div>`;
   }
   fix += tipsHtml(B || { err: true }, Object.assign({}, cfg, { algo: 'buhlmann' }), 'Bühlmann · pour supprimer les paliers')
-       + tipsHtml(M || { err: true }, Object.assign({}, cfg, { algo: 'mn90' }), 'MN90 · pour supprimer les paliers');
+       + tipsHtml(M || { err: true }, Object.assign({}, cfg, { algo: 'mn90' }), 'MN90 · pour supprimer les paliers')
+       + finishHtml(B || { err: true }, Object.assign({}, cfg, { algo: 'buhlmann' }))
+       + ((M && !M.err && cfg.pfin != null && M.ext) ? `<div class="reco"><b>MN90 :</b> pas de remontée progressive possible (table), complément de ${M.ext} min à 3 m.</div>` : '');
   const s0 = (B && !B.err) ? B : (M && !M.err) ? M : null;
   return `<div class="prop">
     <div class="prop-head"><div><div class="prop-title">${CMP_TITLE[key]}</div>
@@ -1103,7 +1164,7 @@ function save() {
 function updatePfinNote() {
   $('pfin').placeholder = RESERVE;
   $('pfinNote').textContent = state.pfin
-    ? `= ${fmt(state.pfin * state.vol)} L dans un bloc de ${state.vol} L. Si la plongée laisse plus de gaz, elle est complétée à 3 m jusqu'à cette pression.`
+    ? `= ${fmt(state.pfin * state.vol)} L dans un bloc de ${state.vol} L. Si la plongée laisse plus de gaz, elle est complétée par une remontée lente recommandée jusqu'à cette pression.`
     : `Vide : réserve de ${RESERVE} bar (${state.vol * RESERVE} L), sans complément. Renseigne la pression finale demandée par le DP pour compléter la durée de plongée.`;
 }
 
