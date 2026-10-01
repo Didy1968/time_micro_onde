@@ -412,7 +412,7 @@ function ascend(st, D, gases, ext, fin) {
   const d1 = Math.ceil(ceilingM(st, GF_LO) / 3 - 1e-6) * 3;
   const gf = dd => d1 <= 0 ? GF_HI : dd >= d1 ? GF_LO : GF_HI - (GF_HI - GF_LO) * dd / d1;
   const stops = [];
-  let deco = 0, d = D;
+  let deco = 0, d = D, firstStop = null;
   while (d > 0) {
     const next = d > 3 ? (d % 3 === 0 ? d - 3 : Math.floor(d / 3) * 3) : 0;
     let w = 0;
@@ -430,12 +430,12 @@ function ascend(st, D, gases, ext, fin) {
       if (total < want) { advance(st, d, d, want - total, gases[0].gas, 'comp'); extraHere = true; total = want; }
     }
     if (d === 3 && ext > 0) { advance(st, 3, 3, ext, gases[0].gas, 'comp'); extraHere = true; total += ext; }   // reliquat à 3 m
-    if (w) deco += w;
+    if (w) { deco += w; if (firstStop == null) firstStop = d; }
     if (total) stops.push({ d, min: total, gas: (extraHere && total > 0 && w === 0 && !(d === 3 && D >= 10)) ? gases[0].gas : gasAt(d) });
     advance(st, d, next, (d - next) / ASC, gasAt(d), 'asc');
     d = next;
   }
-  return { stops, deco };
+  return { stops, deco, firstStop };
 }
 
 // Table MN90 (FFESSM CTR Bretagne & Pays de la Loire, version du 03/05/1999, J.-N. Trucco).
@@ -516,7 +516,7 @@ function ascendMN90(st, D, gases, row, ext) {
     advance(st, 3, 3, ext, gases[0].gas, 'comp');
   }
   advance(st, d, 0, d / 15, gasAt(d), 'asc');
-  return { stops, deco, o2red };
+  return { stops, deco, o2red, firstStop: [15, 12, 9, 6, 3].find(k => eff[k] > 0 && k < D) || null };
 }
 
 // Volume à conserver en surface (L) : pression finale demandée par le DP (bar) × volume du bloc, sinon 50 bar de réserve
@@ -592,7 +592,7 @@ function simulate(bottom, gases, D, bt, cfg, fill) {
     }
   }
   return Object.assign({ D, bt, rt: st.time, cns: st.cns, use: st.use, log: st.log, stops: r.stops, deco: r.deco,
-    ext, fin, alt, needB0, mn: mn ? { dt: mn.dt, t: mn.row[0], gps: mn.row[6], o2red: r.o2red } : null }, a);
+    ext, fin, alt, needB0, firstStop: r.firstStop, mn: mn ? { dt: mn.dt, t: mn.row[0], gps: mn.row[6], o2red: r.o2red } : null }, a);
 }
 
 // Plus grand temps au fond (minutes entières) respectant toutes les contraintes
@@ -888,6 +888,9 @@ function chartSvg(sol) {
     <line x1="${pl}" y1="${y(Dm)}" x2="${W - pr}" y2="${y(Dm)}" stroke="#5a524a" stroke-width="1" stroke-dasharray="3 3"/>
     <polygon points="${pts.join(' ')}" fill="rgba(212,196,168,.10)"/>
     ${lines}
+    <line x1="${x(sol.bt).toFixed(1)}" y1="${y(0)}" x2="${x(sol.bt).toFixed(1)}" y2="${y(sol.D).toFixed(1)}" stroke="#e8903a" stroke-width="1" stroke-dasharray="2 2"/>
+    <circle cx="${x(sol.bt).toFixed(1)}" cy="${y(sol.D).toFixed(1)}" r="3" fill="#e8903a"/>
+    <text x="${(x(sol.bt) - 5).toFixed(1)}" y="${(y(sol.D) - 5).toFixed(1)}" text-anchor="end" style="fill:#e8903a">fin d'objectif</text>
     <text x="${pl - 4}" y="${y(0) + 3}" text-anchor="end">0</text>
     <text x="${pl - 4}" y="${y(Dm) + 3}" text-anchor="end">${Dm}m</text>
     <text x="${pl}" y="${H - 3}">0</text>
@@ -1018,6 +1021,11 @@ function card(sol, cfg, idx) {
         <div class="det" style="margin-top:3px">${barLeft >= 0 ? `Reste ${r0(barLeft)} bar en surface (demandé : ${r0(reserveL(cfg) / cfg.vol)} bar = ${fmt(reserveL(cfg))} L)` : `Il manque ${r0(-barLeft)} bar au-delà d'un bloc plein`} · ${r0(perMin)} L/min à ${sol.D} m</div>
       </div>
       <div class="tile wide">
+        <div class="lbl">Fin d'objectif · début de la remontée</div>
+        <div class="val">${sol.D}<small> m, après ${r0(sol.bt)} min</small></div>
+        <div class="det">Remontée à ${cfg.algo === 'mn90' ? 15 : ASC} m/min · ${sol.firstStop ? `1er palier obligatoire à ${sol.firstStop} m` : 'aucun palier obligatoire'}${sol.fin ? ` · remontée lente recommandée dès ${sol.fin.top} m` : ''}</div>
+      </div>
+      <div class="tile wide">
         <div class="lbl">${sol.fin ? 'Remontée et paliers' : 'Paliers'}</div>
         <div class="stops">${stopsHtml}</div>
         ${sol.fin && sol.ext ? `<div class="det" style="margin-top:4px">dont reliquat : ${sol.ext} min à 3 m</div>` : ''}
@@ -1068,6 +1076,8 @@ function cmpCell(s, cfg, what) {
     case 'bt': return `${r0(s.bt)} min`;
     case 'max': return s.scan && s.scan.bt != null ? `${s.scan.bt} min` : '—';
     case 'rt': return `${r0(s.rt)} min`;
+    case 'end': return `${s.D} m · ${r0(s.bt)} min`;
+    case 'first': return s.firstStop ? `${s.firstStop} m` : 'aucun';
     case 'stops': return stops;
     case 'deco': return `${s.deco} min`;
     case 'deg': {
@@ -1085,7 +1095,7 @@ function compareCard(key, B, M, cfg) {
   const rows = [
     ['Profondeur max', 'depth'], ['Temps au fond', 'bt'],
     ...(cfg.tbot ? [['Fond max possible', 'max']] : []),
-    ['Durée totale', 'rt'], ['Paliers', 'stops'], ['Durée des paliers', 'deco'], ['Gaz de déco', 'deg'],
+    ['Fin d\'objectif', 'end'], ['Durée totale', 'rt'], ['1er palier', 'first'], ['Paliers', 'stops'], ['Durée des paliers', 'deco'], ['Gaz de déco', 'deg'],
     ['SNC', 'cns'], ['Gaz du bloc', 'gas'], ['Verdict', 'verdict']
   ];
   const grid = rows.map(([l, w]) => `<div class="cl">${l}</div><div>${cmpCell(B, cfg, w)}</div><div>${cmpCell(M, cfg, w)}</div>`).join('');
