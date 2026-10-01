@@ -116,7 +116,7 @@
   .btn i { display: block; font-style: normal; font-family: 'DM Sans', sans-serif; font-size: 0.62rem; font-weight: 300; }
   .sel-row { margin-top: 8px; align-items: end; }
   .sel-row > div { min-width: 0; }
-  .sel-row .none { display: none; }
+  .none { display: none; }
   .sel-row label { display: block; font-size: .62rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 3px; }
   .sel-row select {
     width: 100%; background: var(--panel); border: 2px solid transparent; border-radius: 10px;
@@ -309,9 +309,18 @@
   <div class="card">
     <div class="card-label">Décompression <small>(temps au fond : surface → début de remontée)</small></div>
     <div class="row c3" data-group="algo">
-      <button class="btn" data-v="buhlmann"><b>Bühlmann</b><i>ZH-L16C, GF 40/85</i></button>
+      <button class="btn" data-v="buhlmann"><b>Bühlmann</b><i>ZH-L16C</i></button>
       <button class="btn" data-v="mn90"><b>Table MN90</b><i>FFESSM 1999</i></button>
       <button class="btn" data-v="compare"><b>Comparer</b><i>les deux</i></button>
+    </div>
+    <div id="gfRow">
+      <div class="card-label" style="margin-top:10px">Gradient factors Bühlmann (bas / haut)</div>
+      <div class="row c3" data-group="gf">
+        <button class="btn" data-v="40"><b>40 / 85</b><i>prudent</i></button>
+        <button class="btn" data-v="70"><b>70 / 85</b><i>équilibré</i></button>
+        <button class="btn" data-v="85"><b>85 / 85</b><i>Bühlmann pur</i></button>
+      </div>
+      <p class="note">Le GF bas fixe la profondeur du 1er palier : plus il est bas, plus les paliers sont profonds. Le GF haut (85) limite la sursaturation en surface.</p>
     </div>
   </div>
 
@@ -341,7 +350,7 @@
   <div id="results"></div>
 
   <p class="disclaimer">
-    Outil indicatif : Bühlmann ZH-L16C (GF 40/85) ou table MN90 (nitrox par profondeur équivalente air, O₂ pur aux paliers de 6 et 3 m avec durées ×2/3 ; les autres gaz de déco ne sont pas pris en compte en MN90), temps au fond = de la sortie de surface au début de remontée, descente 20 m/min, remontée 10 m/min (15 m/min en MN90), palier de sécurité 3 min à 3 m,
+    Outil indicatif : Bühlmann ZH-L16C (GF bas au choix, GF haut 85 ; 40/85 par défaut) ou table MN90 (nitrox par profondeur équivalente air, O₂ pur aux paliers de 6 et 3 m avec durées ×2/3 ; les autres gaz de déco ne sont pas pris en compte en MN90), temps au fond = de la sortie de surface au début de remontée, descente 20 m/min, remontée 10 m/min (15 m/min en MN90), palier de sécurité 3 min à 3 m,
     bloc gonflé à 200 bar avec 50 bar de réserve (ou la pression finale demandée par le DP, complétée à 3 m), SNC limité à 80 % (tables NOAA).
     Poney de déco : ppO₂ 1,6 max, taille ≤ 7 L (O₂ pur ≤ 4 L) ; avec « Auto », l'appli teste les mélanges standard et retient le plus favorable. Ne remplace ni les tables MN90,
     ni un ordinateur, ni l'analyse de vos mélanges. Vérifiez toujours le contenu de vos blocs.
@@ -351,7 +360,8 @@
 
 <script>
 // ───────────── Constantes ─────────────
-const GF_LO = 0.40, GF_HI = 0.85;
+let GF_LO = 0.40;                 // gradient factor bas (au choix : 40 / 70 / 85 %)
+const GF_HI = 0.85;               // gradient factor haut
 const DESC = 20, ASC = 10;          // m/min
 const FILL = 200, RESERVE = 50;     // bar
 const CNS_MAX = 80;                 // %
@@ -1105,6 +1115,7 @@ function card(sol, cfg, idx) {
       <div class="tile wide">
         <div class="lbl">${sol.fin ? 'Remontée et paliers' : 'Paliers'}</div>
         <div class="stops">${stopsHtml}</div>
+        ${!sol.mn ? `<div class="det" style="margin-top:4px">Bühlmann ZH-L16C · GF ${r0(GF_LO * 100)}/${r0(GF_HI * 100)}</div>` : ''}
         ${sol.fin && sol.ext ? `<div class="det" style="margin-top:4px">dont reliquat : ${sol.ext} min à 3 m</div>` : ''}
         ${sol.mn ? `<div class="det" style="margin-top:4px">Table MN90 lue à ${sol.mn.dt} m${sol.mn.dt !== sol.D ? ' (équivalent air)' : ''} · ${sol.mn.t} min · GPS ${sol.mn.gps === '*' ? '— (successive interdite)' : sol.mn.gps}${sol.mn.o2red ? ' · paliers O₂ réduits (×2/3)' : ''}</div>` : ''}
       </div>
@@ -1202,7 +1213,7 @@ function compareCard(key, B, M, cfg) {
     ${sum}${fix}
     ${chartCompare(B, M)}
     <div class="legend"><span style="--c:${CMP_COL.b}">Bühlmann</span><span style="--c:${CMP_COL.m}">MN90 (pointillé)</span></div>
-    <div class="cmp"><div></div><div class="ch" style="color:${CMP_COL.b}">Bühlmann</div><div class="ch" style="color:${CMP_COL.m}">MN90</div>${grid}</div>
+    <div class="cmp"><div></div><div class="ch" style="color:${CMP_COL.b}">Bühlmann ${r0(GF_LO * 100)}/${r0(GF_HI * 100)}</div><div class="ch" style="color:${CMP_COL.m}">MN90</div>${grid}</div>
   </div>`;
 }
 
@@ -1223,7 +1234,7 @@ function renderCompare(cfg) {
 }
 
 // ───────────── État / UI ─────────────
-const state = { mode: 'deep', algo: 'buhlmann', vol: 12, ppo2: 1.4, sac: 20, gas: new Set(['air', 'nitrox', 'poney']), depth: 30, time: 45, nxO2: null, ponO2: null, pfin: null, dend: null, tdeep: null };
+const state = { mode: 'deep', algo: 'buhlmann', vol: 12, ppo2: 1.4, sac: 20, gas: new Set(['air', 'nitrox', 'poney']), depth: 30, time: 45, gf: 40, nxO2: null, ponO2: null, pfin: null, dend: null, tdeep: null };
 
 function load() {
   try {
@@ -1231,6 +1242,7 @@ function load() {
     if (!s) return;
     if (['buhlmann', 'mn90', 'compare'].includes(s.algo)) state.algo = s.algo;
     if (['deep', 'shallow', 'nodeco'].includes(s.mode)) state.mode = s.mode;
+    state.gf = [40, 70, 85].includes(s.gf) ? s.gf : 40;
     state.dend = s.dend >= 3 && s.dend <= 60 ? s.dend : null;
     state.tdeep = s.tdeep >= 1 && s.tdeep <= 240 ? s.tdeep : null;
     state.pfin = s.pfin >= 1 && s.pfin <= FILL ? s.pfin : null;      // (l'ancien réglage en litres est abandonné)
@@ -1258,13 +1270,14 @@ function updatePfinNote() {
 }
 
 function syncUi() {
-  const vals = { mode: state.mode, algo: state.algo, vol: String(state.vol), ppo2: String(state.ppo2), sac: String(state.sac) };
+  const vals = { mode: state.mode, algo: state.algo, gf: String(state.gf), vol: String(state.vol), ppo2: String(state.ppo2), sac: String(state.sac) };
   document.querySelectorAll('[data-group]').forEach(grp => {
     const g = grp.dataset.group;
     grp.querySelectorAll('.btn').forEach(b => {
       b.classList.toggle('active', g === 'gas' ? state.gas.has(b.dataset.v) : b.dataset.v === vals[g]);
     });
   });
+  $('gfRow').classList.toggle('none', state.algo === 'mn90');
   $('nxRow').classList.toggle('none', !state.gas.has('nitrox'));
   $('ponRow').classList.toggle('none', !state.gas.has('poney'));
   $('nxO2').value = state.nxO2 || '';
@@ -1279,6 +1292,7 @@ function syncUi() {
 
 function render() {
   SAC = state.sac;
+  GF_LO = state.gf / 100;
   const cfg = {
     mode: state.mode, vol: state.vol, ppo2: state.ppo2, gas: state.gas,
     depth: state.depth, tbot: state.time || null, sac: state.sac, algo: state.algo,
@@ -1312,6 +1326,7 @@ document.querySelectorAll('[data-group]').forEach(grp => {
     const g = grp.dataset.group, v = b.dataset.v;
     if (g === 'gas') { state.gas.has(v) ? state.gas.delete(v) : state.gas.add(v); }
     else if (g === 'mode' || g === 'algo') state[g] = v;
+    else if (g === 'gf') state.gf = Number(v);
     else state[g] = Number(v);
     syncUi();
     update();
