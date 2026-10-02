@@ -219,6 +219,18 @@
   .reco { margin-top: 6px; padding: 7px 10px; border-radius: 10px; background: rgba(102,201,141,.12); font-size: .74rem; color: #8fd9ab; line-height: 1.4; }
   .reco ul { margin: 3px 0 0 16px; }
   .reco b { color: #b6ecc9; font-weight: 500; }
+  .legend .swl::before { content: none; }
+  .legend .swl { color: #fff; }
+  .note-c { font-size: .62rem; color: var(--muted); margin: -4px 0 8px; }
+  .gasbox { margin-top: 6px; padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,.06); }
+  .gasbox .lbl { font-size: .58rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+  .sw-list { margin: 4px 0 0 18px; font-size: .78rem; line-height: 1.35; }
+  .sw-list li { margin-bottom: 6px; }
+  .sw-list .det i { color: var(--amber); font-style: normal; }
+  .gasbox details { margin-top: 4px; font-size: .68rem; color: var(--sand); }
+  .gasbox summary { cursor: pointer; color: var(--amber); }
+  .gasbox details ul { margin: 4px 0 0 16px; line-height: 1.4; }
+  .gasbox details li { margin-bottom: 3px; }
   .warnings { margin-top: 8px; font-size: .68rem; color: #f0b04a; line-height: 1.4; }
 
   .empty { margin: 0 20px; font-size: .9rem; color: var(--muted); font-style: italic; font-weight: 300; }
@@ -440,26 +452,30 @@ function ascend(st, D, gases, ext, fin) {
   const gf = dd => d1 <= 0 ? GF_HI : dd >= d1 ? GF_LO : GF_HI - (GF_HI - GF_LO) * dd / d1;
   const stops = [];
   let deco = 0, d = D, firstStop = null;
+  let cur = gases[0].gas;                          // gaz respiré : on ne change que pour un palier obligatoire, puis on le garde
   while (d > 0) {
     const next = d > 3 ? (d % 3 === 0 ? d - 3 : Math.floor(d / 3) * 3) : 0;
+    const before = cur;
     let w = 0;
     while (ceilingM(st, gf(next)) > next + 0.01) {
-      advance(st, d, d, 1, gasAt(d), 'palier');
+      const g = gasAt(d);
+      if (g.fo2 > cur.fo2 + 1e-9) cur = g;       // changement de gaz au palier
+      advance(st, d, d, 1, cur, 'palier');
       if (++w > 300) return null;
     }
-    let total = w, extraHere = false;
-    if (d === 3 && D >= 10 && w < 3) {           // palier de sécurité
-      advance(st, 3, 3, 3 - w, gasAt(3), 'palier');
+    let total = w;
+    if (d === 3 && D >= 10 && w < 3) {           // palier de sécurité (sur le gaz en cours)
+      advance(st, 3, 3, 3 - w, cur, 'palier');
       total = 3;
     }
     if (fin && (fin.single ? d === fin.top : d <= fin.top)) {              // remontée recommandée : séjour minimal par niveau
       const want = fin.t + (!fin.single && d <= 3 * (fin.plus || 0) ? 1 : 0);
-      if (total < want) { advance(st, d, d, want - total, gases[0].gas, 'comp'); extraHere = true; total = want; }
+      if (total < want) { advance(st, d, d, want - total, cur, 'comp'); total = want; }
     }
-    if (d === 3 && ext > 0) { advance(st, 3, 3, ext, gases[0].gas, 'comp'); extraHere = true; total += ext; }   // reliquat à 3 m
+    if (d === 3 && ext > 0 && cur === gases[0].gas) { advance(st, 3, 3, ext, cur, 'comp'); total += ext; }   // reliquat à 3 m (sur le bloc)
     if (w) { deco += w; if (firstStop == null) firstStop = d; }
-    if (total) stops.push({ d, min: total, gas: (extraHere && total > 0 && w === 0 && !(d === 3 && D >= 10)) ? gases[0].gas : gasAt(d) });
-    advance(st, d, next, (d - next) / ASC, gasAt(d), 'asc');
+    if (total) stops.push({ d, min: total, gas: cur, sw: cur !== before });
+    advance(st, d, next, (d - next) / ASC, cur, 'asc');
     d = next;
   }
   return { stops, deco, firstStop };
@@ -530,19 +546,24 @@ function ascendMN90(st, D, gases, row, ext) {
     if (m > 0 && k < D) plan.push([k, m]);
   }
   const stops = [];
-  let d = D, first = true;
+  let d = D, first = true, cur = gases[0].gas, extDone = false;
+  const doExt = () => {                                     // complément jusqu'à la pression finale, à 3 m, sur le bloc
+    if (ext > 0 && !extDone && cur === gases[0].gas) {
+      if (d > 3) { advance(st, d, 3, (d - 3) / (first ? 15 : 6), cur, 'asc'); first = false; d = 3; }
+      advance(st, 3, 3, ext, cur, 'comp');
+      extDone = true;
+    }
+  };
   for (const [k, m] of plan) {
-    advance(st, d, k, (d - k) / (first ? 15 : 6), gasAt(d), 'asc');
-    d = k; first = false;
-    advance(st, d, d, m, gasAt(d), 'palier');
-    stops.push({ d, min: m, gas: gasAt(d) });
+    if (k === 3) { advance(st, d, 3, (d - 3) / (first ? 15 : 6), cur, 'asc'); first = false; d = 3; doExt(); }
+    else { advance(st, d, k, (d - k) / (first ? 15 : 6), cur, 'asc'); d = k; first = false; }
+    const before = cur;
+    if (eff[k] > 0) { const g = gasAt(k); if (g.fo2 > cur.fo2 + 1e-9) cur = g; }   // changement de gaz au palier obligatoire
+    advance(st, d, d, m, cur, 'palier');
+    stops.push({ d, min: m + (k === 3 && extDone ? ext : 0), gas: cur, sw: cur !== before });
   }
-  if (ext > 0) {                                            // complément jusqu'à la pression finale, à 3 m
-    if (d > 3) advance(st, d, 3, (d - 3) / (first ? 15 : 6), gasAt(d), 'asc');
-    d = 3;
-    advance(st, 3, 3, ext, gases[0].gas, 'comp');
-  }
-  advance(st, d, 0, d / 15, gasAt(d), 'asc');
+  doExt();
+  advance(st, d, 0, d / 15, cur, 'asc');
   return { stops, deco, o2red, firstStop: [15, 12, 9, 6, 3].find(k => eff[k] > 0 && k < D) || null };
 }
 
@@ -955,6 +976,23 @@ const $ = id => document.getElementById(id);
 const r0 = x => Math.round(x);
 const fmt = x => Math.round(x).toLocaleString('fr-FR');
 
+// Changements de gaz du profil : profondeur, minute de plongée, gaz quitté / pris, ppO₂, temps et litres sur le nouveau gaz
+function gasSwitches(sol) {
+  const out = [];
+  let prev = sol.bottom, t = 0, cur = null;
+  for (const e of sol.log) {
+    if (e.gas.id !== prev.id) {
+      cur = { t, d: e.d0, from: prev, to: e.gas, ppo2: e.gas.fo2 * (e.d0 / 10 + 1), mod: modOf(e.gas.fo2, 1.6), min: 0, L: 0 };
+      out.push(cur);
+      prev = e.gas;
+    }
+    if (cur) { cur.min += e.dur; cur.L += e.L; }
+    t += e.dur;
+  }
+  return out;
+}
+const fr = (x, n) => x.toFixed(n).replace('.', ',');
+
 function chartSvg(sol) {
   const W = 320, H = 128, pl = 28, pr = 8, pt = 10, pb = 16;
   const T = sol.rt, Dm = Math.max(sol.D, 6);
@@ -967,11 +1005,18 @@ function chartSvg(sol) {
     pts.push(`${x(t1).toFixed(1)},${y(s.d1).toFixed(1)}`);
     t = t1;
   }
+  let marks = '';
+  for (const sw of gasSwitches(sol)) {
+    const cx = x(sw.t), cy = y(sw.d), right = cx > W - 70;
+    marks += `<path d="M${cx.toFixed(1)} ${(cy - 5).toFixed(1)} l4 5 l-4 5 l-4 -5 z" fill="#fff" style="stroke:${gasColor(sw.to)}" stroke-width="1.5"/>
+      <text x="${(cx + (right ? -7 : 7)).toFixed(1)}" y="${(cy - 7).toFixed(1)}" text-anchor="${right ? 'end' : 'start'}" style="fill:${gasColor(sw.to)}">→ ${sw.to.name} à ${sw.d} m</text>`;
+  }
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Profil de plongée">
     <line x1="${pl}" y1="${y(0)}" x2="${W - pr}" y2="${y(0)}" stroke="#5a524a" stroke-width="1"/>
     <line x1="${pl}" y1="${y(Dm)}" x2="${W - pr}" y2="${y(Dm)}" stroke="#5a524a" stroke-width="1" stroke-dasharray="3 3"/>
     <polygon points="${pts.join(' ')}" fill="rgba(212,196,168,.10)"/>
     ${lines}
+    ${marks}
     <line x1="${x(sol.bt).toFixed(1)}" y1="${y(0)}" x2="${x(sol.bt).toFixed(1)}" y2="${y(sol.Le).toFixed(1)}" stroke="#e8903a" stroke-width="1" stroke-dasharray="2 2"/>
     <circle cx="${x(sol.bt).toFixed(1)}" cy="${y(sol.Le).toFixed(1)}" r="3" fill="#e8903a"/>
     <text x="${(x(sol.bt) - 5).toFixed(1)}" y="${(y(sol.Le) - 5).toFixed(1)}" text-anchor="end" style="fill:#e8903a">fin d'objectif</text>
@@ -1008,6 +1053,25 @@ function usageBreakdown(sol) {
   return Object.values(m);
 }
 
+// Bloc « Changements de gaz » : un item par changement + rappel de procédure
+function switchHtml(sws, sol) {
+  const items = sws.map((w, i) => {
+    const need = Math.ceil(w.L / (FILL - RESERVE) * 2) / 2;
+    return `<li><b>À ${w.d} m</b> · après ${r0(w.t)} min · ${w.from.name} <b>→ ${w.to.name}</b>
+      <div class="det">ppO₂ ${fr(w.ppo2, 2)} à ${w.d} m (plancher du ${w.to.name} : ${w.mod} m)${w.ppo2 >= 1.59 ? ' <span class="warn">⚠ limite de ppO₂ (1,6) : ne pas descendre sous ' + w.d + ' m avec ce gaz</span>' : w.ppo2 > 1.5 ? ' <span class="warn">⚠ proche de 1,6</span>' : ''}
+      · ${r0(w.min)} min sur ce gaz · ${fmt(w.L)} L${w.to.fo2 > sol.bottom.fo2 && w.to.cap ? ` (poney ≥ ${String(need).replace('.', ',')} L)` : ''}
+      ${i === 0 && w.from.id === sol.bottom.id ? `· <i>${w.d === sol.firstStop ? 'à ton premier palier obligatoire' : 'au premier palier obligatoire où ce gaz est utilisable'}</i>` : ''}</div></li>`;
+  }).join('');
+  return `<div class="gasbox"><div class="lbl">Changements de gaz</div>
+    <ol class="sw-list">${items}</ol>
+    <details><summary>Rappel de procédure</summary><ul>
+      <li><b>Avant la plongée</b> : analyser chaque mélange, étiqueter bloc et poney (nom + profondeur plancher), détendeur du poney repérable au toucher.</li>
+      <li><b>Jamais plus profond que le plancher</b> du nouveau mélange (ppO₂ ≤ 1,6) : si tu as dépassé la profondeur, attends d'être remonté.</li>
+      <li><b>Au changement</b> : stabiliser la profondeur, annoncer au binôme « profondeur, mélange », relire l'étiquette, passer le détendeur du poney, vérifier la respiration, clipser l'ancien détendeur, noter l'heure.</li>
+      <li><b>Ensuite</b> : garder ce mélange jusqu'à la surface (ou jusqu'au changement suivant). Au moindre doute : rester sur le bloc et allonger les paliers.</li>
+    </ul></details></div>`;
+}
+
 function card(sol, cfg, idx) {
   const def = sol.def, g0 = sol.bottom;
   const head = (badge) => `<div class="prop-head">
@@ -1036,9 +1100,10 @@ function card(sol, cfg, idx) {
   const depthDet = cfg.depth ? (sol.depthOk ? 'objectif atteint' : `demandé ${cfg.depth} m`) : 'profondeur libre';
 
   const stopsHtml = sol.stops.length
-    ? sol.stops.map(s => `<em>${s.d} m</em> ${s.min}′${s.gas.fo2 > g0.fo2 + 0.005 ? ` <span style="color:${gasColor(s.gas)}">(${s.gas.name})</span>` : ''}`).join(' · ')
+    ? sol.stops.map(s => `<em>${s.d} m</em> ${s.min}′${s.gas.fo2 > g0.fo2 + 0.005 ? ` <span style="color:${gasColor(s.gas)}">${s.sw ? '⇄ ' : '('}${s.gas.name}${s.sw ? '' : ')'}</span>` : ''}`).join(' · ')
     : 'aucun';
 
+  const swList = gasSwitches(sol);
   const legend = [g0].concat(usedDeco.map(x => x.gas)).map(g => `<span style="--c:${gasColor(g)}">${g.name}</span>`).join('');
 
   const bd = usageBreakdown(sol);
@@ -1073,7 +1138,9 @@ function card(sol, cfg, idx) {
     ${head(!cfg.tbot && idx === 0 ? 'Plus long' : (cfg.tbot && verdictOk ? 'Possible' : ''))}
     ${verdict}${fix}${tipsHtml(sol, cfg)}${finishHtml(sol, cfg)}
     ${chartSvg(sol)}
-    <div class="legend">${legend}</div>
+    <div class="legend">${legend}${swList.length ? '<span class="swl">◆ changement de gaz</span>' : ''}</div>
+    ${swList.length ? '<div class="note-c">La couleur de la courbe indique le gaz respiré ; elle ne change qu\'aux ◆.</div>' : ''}
+    ${swList.length ? switchHtml(swList, sol) : ''}
     <div class="tiles">
       <div class="tile">
         <div class="lbl">Profondeur max</div>
@@ -1169,8 +1236,8 @@ function cmpCell(s, cfg, what) {
     case 'stops': return stops;
     case 'deco': return `${s.deco} min`;
     case 'deg': {
-      const used = s.gases.slice(1).filter(x => (s.use[x.gas.id] || 0) > 0).map(x => x.gas.name);
-      return used.length ? used.join(' / ') : '—';
+      const sw = gasSwitches(s);
+      return sw.length ? sw.map(w => `${w.to.name} à ${w.d} m`).join('<br>') : '—';
     }
     case 'cns': return `<span class="${s.cns < 50 ? 'ok' : s.cns <= CNS_MAX ? 'warn' : 'bad'}">${s.cns < 1 ? '<1' : r0(s.cns)} %</span>`;
     case 'gas': return `<span class="${s.flags.gas ? 'ok' : 'bad'}">${fmt(s.needB)} L</span><br><span class="mut">/ ${fmt(s.usable)} dispo</span>`;
